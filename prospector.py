@@ -64,6 +64,11 @@ GENERIC_MAILBOXES = {"info", "office", "mail", "sales", "hello", "contact", "con
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 BAD_EMAIL_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".css", ".js")
 BAD_EMAIL_DOMAINS = ("example.com", "example.ru", "sentry.io", "wixpress.com", "domain.com", "email.com", "mail.example")
+# признаки заглушки: домен продаётся, сайт не опубликован, пустая страница хостинга
+PARKED_HINTS = ("домен продается", "домен продаётся", "домен выставлен на продажу", "купить домен", "купить этот домен",
+                "domain is for sale", "this domain is for sale", "buy this domain", "domain for sale", "parked domain",
+                "domain parking", "сайт не опубликован", "сайт заблокирован", "срок регистрации домена истек",
+                "срок регистрации домена истёк", "аккаунт заблокирован", "account suspended", "index of /")
 CONTACT_HINTS = ("contact", "kontakt", "контакт", "about", "o-nas", "o-kompanii", "о-нас", "о компании", "связ")
 
 
@@ -188,9 +193,22 @@ def extract_emails(html: str, soup: BeautifulSoup, domain: str) -> list[str]:
         if not EMAIL_RE.fullmatch(e) or e.endswith(BAD_EMAIL_SUFFIXES) or e.split("@")[1] in BAD_EMAIL_DOMAINS:
             continue
         clean.append(e)
-    # сначала адреса на домене сайта и общие ящики (info@, sales@): они не персональные данные конкретного человека
-    return sorted(set(clean), key=lambda e: (not e.endswith("@" + domain) and not e.endswith("." + domain),
-                                             not is_generic(e), e))
+    return sorted(set(clean), key=lambda e: email_rank(e, domain))
+
+
+def email_rank(email: str, domain: str) -> tuple:
+    """Чем меньше, тем лучше. Сначала адреса на домене сайта, потом ящики с названием сайта (zyb-ok@mail.ru),
+    потом общие (info@), в конце — похожие на личные (lerner1966@mail.ru): это персональные данные человека."""
+    local, _, host = email.partition("@")
+    stem = re.sub(r"[^a-z0-9]", "", domain.split(".")[0])
+    on_domain = host == domain or host.endswith("." + domain)
+    named = bool(stem) and len(stem) >= 3 and stem in re.sub(r"[^a-z0-9]", "", local)
+    return (not on_domain, not named, not is_generic(email), looks_personal(email), email)
+
+
+def looks_personal(email: str) -> bool:
+    local = email.split("@")[0]
+    return bool(re.search(r"(19[4-9]\d|20[0-2]\d)", local) or re.fullmatch(r"[a-z]+[._][a-z]+", local))
 
 
 def is_generic(email: str) -> bool:
@@ -230,22 +248,32 @@ def audit_site(raw: str, fetcher: Fetcher, check_links: int, psi: bool, psi_key:
     if resp is None:
         return finish(a)
 
-    a.ok, a.error = True, ""
     a.url, a.status = resp.url, resp.status_code
+    if resp.status_code >= 400:
+        a.error = f"сайт отвечает ошибкой {resp.status_code}"
+        return finish(a)
+    page_text = BeautifulSoup(resp.text, "html.parser").get_text(" ", strip=True).lower()
+    if any(h in page_text[:3000] for h in PARKED_HINTS):
+        a.error = "заглушка: домен продаётся или сайт не работает"
+        return finish(a)
+    a.ok, a.error = True, ""
     a.https = resp.url.startswith("https://")
     html = resp.text
     a.html_kb = len(resp.content) // 1024
     soup = BeautifulSoup(html, "html.parser")
 
     if not a.https:
-        # бывает, что HTTPS работает, но без редиректа с HTTP: тогда проблема мягче, но всё равно есть
-        a.add("no_https")
+        # если HTTPS есть, но с плохим сертификатом, это одна проблема, а не две
+        if "bad_cert" not in a.issues:
+            a.add("no_https")
     else:
         a.issues.pop("bad_cert", None)
         host = urlparse(a.url).hostname
         port = urlparse(a.url).port or 443
         a.cert_days_left = cert_days_left(host, port)
-        if a.cert_days_left is not None and a.cert_days_left < 21:
+        # бесплатные сертификаты (Let's Encrypt) живут 90 дней и продлеваются сами незадолго до конца,
+        # поэтому «осталось 20 дней» — норма. Тревожно, только если осталось совсем мало.
+        if a.cert_days_left is not None and a.cert_days_left < 7:
             a.add("cert_expiring", days=a.cert_days_left)
         insecure = [t for t in soup.select("script[src], img[src], link[href], iframe[src]")
                     if (t.get("src") or t.get("href") or "").startswith("http://")]
@@ -254,6 +282,14 @@ def audit_site(raw: str, fetcher: Fetcher, check_links: int, psi: bool, psi_key:
 
     if not soup.find("meta", attrs={"name": re.compile("^viewport$", re.I)}):
         a.add("no_viewport")
+    if a.seconds > 3:
+        # один медленный ответ может быть случайностью: перемеряем и берём лучший результат
+        try:
+            t0 = time.monotonic()
+            fetcher.get(a.url)
+            a.seconds = round(min(a.seconds, time.monotonic() - t0), 2)
+        except requests.RequestException:
+            pass
     if a.seconds > 3:
         a.add("slow", seconds=a.seconds)
     if a.html_kb > 500:

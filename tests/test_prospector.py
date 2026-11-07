@@ -28,7 +28,8 @@ GOOD = f"""<!doctype html><html><head><title>Хороший сайт</title>
 <meta name="viewport" content="width=device-width"><meta name="description" content="Описание">
 </head><body><a href="/ok">ok</a><footer>© {p.YEAR}</footer></body></html>"""
 ROBOTS = "User-agent: *\nDisallow: /private\n"
-PAGES = {"/old/": OLD, "/contacts": CONTACTS, "/ok": "<html>ok</html>", "/good/": GOOD,
+PARKED = "<html><body><h1>Этот домен продаётся!</h1><p>Купить домен romashka.ru</p></body></html>"
+PAGES = {"/parked/": PARKED, "/old/": OLD, "/contacts": CONTACTS, "/ok": "<html>ok</html>", "/good/": GOOD,
          "/private/": GOOD, "/robots.txt": ROBOTS}
 
 
@@ -180,6 +181,31 @@ class Tests(unittest.TestCase):
         bad = mock.Mock(status_code=403, text="Permission denied")
         with mock.patch.object(p.requests, "post", return_value=bad), self.assertRaises(p.YandexError):
             p.yandex_search("q", 0, "k", "f", None)
+
+    def test_parked_and_dead(self):
+        a = self.audit("/parked/")
+        self.assertFalse(a.ok)
+        self.assertIn("заглушка", a.error)
+        a = self.audit("/nope/")
+        self.assertFalse(a.ok)
+        self.assertIn("404", a.error)
+
+    def test_email_order(self):
+        emails = ["lerner1966@mail.ru", "zyb-ok@mail.ru", "ivan.petrov@gmail.com", "info@clinic.ru", "doc@zyb-ok.ru"]
+        ranked = sorted(emails, key=lambda e: p.email_rank(e, "zyb-ok.ru"))
+        self.assertEqual(ranked[:2], ["doc@zyb-ok.ru", "zyb-ok@mail.ru"])
+        self.assertEqual(set(ranked[-2:]), {"lerner1966@mail.ru", "ivan.petrov@gmail.com"})
+        self.assertTrue(p.looks_personal("lerner1966@mail.ru"))
+        self.assertFalse(p.looks_personal("zyb-ok@mail.ru"))
+
+    def test_bad_cert_not_counted_twice(self):
+        fetcher = mock.Mock()
+        fetcher.allowed.return_value = True
+        page = mock.Mock(url="http://zyb-ok.ru/", status_code=200, text=GOOD, content=GOOD.encode())
+        fetcher.get.side_effect = [p.requests.exceptions.SSLError(), p.requests.exceptions.SSLError(), page]
+        a = p.audit_site("zyb-ok.ru", fetcher, 0, False, None)
+        self.assertIn("bad_cert", a.issues)
+        self.assertNotIn("no_https", a.issues)
 
     def test_suppression(self):
         block = {"romashka.ru", "boss@other.ru"}

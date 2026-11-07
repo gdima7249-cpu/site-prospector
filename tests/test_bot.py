@@ -12,7 +12,7 @@ os.environ["NO_PROXY"] = os.environ["no_proxy"] = "127.0.0.1,localhost"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bot  # noqa: E402
-from test_prospector import H  # noqa: E402
+from test_prospector import H, PAGES  # noqa: E402
 
 
 def resp(data):
@@ -25,13 +25,27 @@ def resp(data):
 class BotTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
-        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
-        cls.base = f"http://127.0.0.1:{cls.srv.server_port}"
+        # два «сайта» с главной в корне: старый (127.0.0.1) и хороший (localhost)
+        def handler(root):
+            class R(H):
+                def do_GET(self):
+                    if self.path == "/":
+                        self.path = root
+                    H.do_GET(self)
+                do_HEAD = do_GET
+            return R
+        cls.servers = []
+        for root in ("/old/", "/good/"):
+            srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(root))
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+            cls.servers.append(srv)
+        cls.old = f"http://127.0.0.1:{cls.servers[0].server_port}/"
+        cls.good = f"http://localhost:{cls.servers[1].server_port}/"
 
     @classmethod
     def tearDownClass(cls):
-        cls.srv.shutdown()
+        for srv in cls.servers:
+            srv.shutdown()
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -58,9 +72,9 @@ class BotTests(unittest.TestCase):
     def osm(self):
         nominatim = resp([{"boundingbox": ["55.6", "55.9", "48.8", "49.4"]}])
         overpass = resp({"elements": [
-            {"tags": {"name": "Ромашка", "website": self.base + "/old/", "email": "boss@romashka.ru"}},
-            {"tags": {"name": "Хорошая", "contact:website": self.base.replace("127.0.0.1", "localhost") + "/good/"}},
-            {"tags": {"name": "Дубль", "website": self.base + "/old/"}},
+            {"tags": {"name": "Ромашка", "website": self.old, "email": "boss@romashka.ru"}},
+            {"tags": {"name": "Хорошая", "contact:website": self.good}},
+            {"tags": {"name": "Ромашка", "website": self.old}},  # дубль той же организации
             {"tags": {"name": "Авито", "website": "https://www.avito.ru/x"}},
             {"tags": {"name": "Без сайта"}},
         ]})
@@ -75,6 +89,23 @@ class BotTests(unittest.TestCase):
         self.assertEqual(found[0]["email"], "boss@romashka.ru")
         self.assertEqual(get_kw["params"]["q"], "Казань")
         self.assertIn("User-Agent", get_kw["headers"])
+
+    def test_state_and_portal_filtered(self):
+        nominatim = resp([{"boundingbox": ["55.6", "55.9", "48.8", "49.4"]}])
+        overpass = resp({"elements": [
+            {"tags": {"name": "Детская стоматологическая поликлиника № 6", "website": "https://zdrav.tatar.ru/kzn/dsp6"}},
+            {"tags": {"name": "ГАУЗ Стоматология № 9", "website": "https://stom9.ru"}},
+            {"tags": {"name": "Улыбка", "operator:type": "public", "website": "https://ulybka-gos.ru"}},
+            {"tags": {"name": "Частная клиника", "website": "https://portal.ru/clinics/42"}},
+            {"tags": {"name": "Сеть А, филиал 1", "website": "https://set-a.ru"}},
+            {"tags": {"name": "Сеть А, филиал 2", "website": "https://set-a.ru/"}},
+            {"tags": {"name": "Зубок", "website": "http://zyb-ok.ru/"}},
+            {"tags": {"name": "Тари", "website": "taristom.ru/index.php"}},
+        ]})
+        with mock.patch.object(bot.requests, "get", return_value=nominatim), \
+                mock.patch.object(bot.requests, "post", return_value=overpass):
+            found = bot.find_businesses("стоматология", "Казань")
+        self.assertEqual([b["domain"] for b in found], ["zyb-ok.ru", "taristom.ru"])
 
     def test_city_not_found(self):
         with mock.patch.object(bot.requests, "get", return_value=resp([])), self.assertRaises(LookupError):

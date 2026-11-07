@@ -16,6 +16,7 @@ import csv
 import io
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -113,6 +114,24 @@ def parse_request(text: str) -> tuple[str, str] | None:
 
 
 # ───────────────────────────── OpenStreetMap ─────────────────────────────
+# государственные и муниципальные учреждения: заказывать сайт у частника они не будут
+STATE_RE = re.compile(r"\b(ГБУЗ|ГАУЗ|ГБУ|ГАУ|МБУ|МАУ|МБОУ|МБДОУ|МАДОУ|ФГБУ|ФГБОУ|ФГУП|ГУП|МУП|ГКБ|ГУЗ|МУЗ|ОГБУЗ|КГБУЗ|ГБУЗС)\b"
+                      r"|поликлиник|больниц|государствен|муниципальн|республиканск|министерств|управлени[ея] здравоохран",
+                      re.I)
+STATE_OPERATORS = {"public", "government", "community"}
+ROOT_PATHS = {"", "index.html", "index.htm", "index.php", "ru", "main", "home"}
+
+
+def is_state(tags: dict) -> bool:
+    text = " ".join(tags.get(k, "") for k in ("name", "official_name", "operator", "operator:ru"))
+    return tags.get("operator:type", "") in STATE_OPERATORS or bool(STATE_RE.search(text))
+
+
+def is_portal_page(site: str) -> bool:
+    """Сайт указан как страница внутри чужого портала (zdrav.tatar.ru/kzn/dsp6), а не свой домен."""
+    path = urlparse(site if "://" in site else "http://" + site).path.strip("/").lower()
+    return path not in ROOT_PATHS
+
 class MapError(RuntimeError):
     """Сервис карты не ответил. Текст — для пользователя: какой сервис и что вернул."""
 
@@ -182,12 +201,26 @@ def find_businesses(niche: str, city: str) -> list[dict]:
         print(f"Overpass {host}: {_describe(r)}: {r.text[:300]!r}")
     else:
         raise MapError("поиск компаний (Overpass): " + "; ".join(errors))
+    def site_of(tags):
+        return tags.get("website") or tags.get("contact:website") or tags.get("url") or ""
+
+    # домен, указанный у нескольких разных организаций, — это портал или сеть, а не сайт одного владельца
+    owners: dict[str, set] = {}
+    for el in elements:
+        tags = el.get("tags", {})
+        d = p.normalize(site_of(tags))
+        if d:
+            owners.setdefault(d, set()).add(tags.get("name", "").strip().lower())
+
     found, seen = [], set()
     for el in elements:
         tags = el.get("tags", {})
-        site = tags.get("website") or tags.get("contact:website") or tags.get("url")
-        domain = p.normalize(site or "")
+        site = site_of(tags)
+        domain = p.normalize(site)
         if not domain or domain in seen or p.root_domain_skipped(domain, p.SKIP_DOMAINS):
+            continue
+        if is_state(tags) or is_portal_page(site) or len(owners[domain]) > 1 \
+                or domain.startswith(("zdrav.", "minzdrav.")) or ".gov." in domain:
             continue
         seen.add(domain)
         found.append({"name": tags.get("name", ""), "site": site, "domain": domain,
