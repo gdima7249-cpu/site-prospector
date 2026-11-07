@@ -106,7 +106,7 @@ class BotTests(unittest.TestCase):
                 mock.patch.object(bot.time, "sleep"), self.assertRaises(bot.MapError) as cm:
             bot.find_city("Казань")
         self.assertEqual(get.call_count, 2)  # одна повторная попытка
-        self.assertIn("nominatim.openstreetmap.org: HTTP 403 — доступ запрещён", str(cm.exception))
+        self.assertIn("поиск города (nominatim.openstreetmap.org): HTTP 403 — доступ запрещён", str(cm.exception))
         self.assertIn("github.com", get.call_args.kwargs["headers"]["User-Agent"])
 
     def test_map_error_reaches_user(self):
