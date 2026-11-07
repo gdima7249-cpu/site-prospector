@@ -30,9 +30,15 @@ import prospector as p
 
 HERE = Path(__file__).resolve().parent
 STATE = HERE / "bot_state.json"
-UA = "site-prospector-bot/1.0"
+# правила OpenStreetMap требуют, чтобы программа представлялась и давала ссылку на себя
+UA = "site-prospector-bot/1.1 (+https://github.com/gdima7249-cpu/site-prospector)"
 NOMINATIM = "https://nominatim.openstreetmap.org/search"
-OVERPASS = "https://overpass-api.de/api/interpreter"
+# основной сервер Overpass и общедоступные зеркала: если один перегружен, пробуем следующий
+OVERPASS_URLS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+]
 MAX_SITES = 40   # сколько сайтов проверять за один поиск
 SHOW_TOP = 10    # сколько худших показывать
 
@@ -107,12 +113,34 @@ def parse_request(text: str) -> tuple[str, str] | None:
 
 
 # ───────────────────────────── OpenStreetMap ─────────────────────────────
+class MapError(RuntimeError):
+    """Сервис карты не ответил. Текст — для пользователя: какой сервис и что вернул."""
+
+
+def _describe(r: requests.Response) -> str:
+    hint = {403: "доступ запрещён", 429: "слишком много запросов", 400: "не понял запрос",
+            502: "сервер перегружен", 503: "сервер перегружен", 504: "сервер не успел ответить"}.get(r.status_code, "")
+    return f"HTTP {r.status_code}" + (f" — {hint}" if hint else "")
+
+
 def find_city(city: str) -> tuple[float, float, float, float] | None:
     """Границы города (юг, запад, север, восток) через Nominatim."""
-    r = requests.get(NOMINATIM, params={"q": city, "format": "json", "limit": 1, "accept-language": "ru",
-                                        "countrycodes": "ru,by,kz,ua"},
-                     headers={"User-Agent": UA}, timeout=30)
-    r.raise_for_status()
+    params = {"q": city, "format": "json", "limit": 1, "accept-language": "ru", "countrycodes": "ru,by,kz,ua"}
+    r = None
+    for attempt in range(2):
+        try:
+            r = requests.get(NOMINATIM, params=params, headers={"User-Agent": UA}, timeout=30)
+        except requests.RequestException as e:
+            err = type(e).__name__
+        else:
+            if r.status_code == 200:
+                break
+            err = _describe(r)
+            print(f"Nominatim: {err}: {r.text[:300]!r}")
+        if attempt == 0:
+            time.sleep(2)
+    else:
+        raise MapError(f"поиск города (nominatim.openstreetmap.org): {err}")
     data = r.json()
     if not data:
         return None
@@ -133,11 +161,29 @@ def find_businesses(niche: str, city: str) -> list[dict]:
     bbox = find_city(city)
     if bbox is None:
         raise LookupError(f"Не нашёл город «{city}»")
-    r = requests.post(OVERPASS, data={"data": overpass_query(NICHES[niche], bbox)},
-                      headers={"User-Agent": UA}, timeout=120)
-    r.raise_for_status()
+    query = overpass_query(NICHES[niche], bbox)
+    errors = []
+    for url in OVERPASS_URLS:
+        host = urlparse(url).hostname
+        try:
+            r = requests.post(url, data={"data": query}, headers={"User-Agent": UA}, timeout=120)
+        except requests.RequestException as e:
+            errors.append(f"{host}: {type(e).__name__}")
+            continue
+        if r.status_code == 200:
+            try:
+                elements = r.json().get("elements", [])
+                break
+            except ValueError:
+                errors.append(f"{host}: ответ не в JSON")
+                print(f"Overpass {host}: не JSON: {r.text[:300]!r}")
+                continue
+        errors.append(f"{host}: {_describe(r)}")
+        print(f"Overpass {host}: {_describe(r)}: {r.text[:300]!r}")
+    else:
+        raise MapError("поиск компаний (Overpass): " + "; ".join(errors))
     found, seen = [], set()
-    for el in r.json().get("elements", []):
+    for el in elements:
         tags = el.get("tags", {})
         site = tags.get("website") or tags.get("contact:website") or tags.get("url")
         domain = p.normalize(site or "")
@@ -287,8 +333,9 @@ class Bot:
                 found = find_businesses(niche, city)
             except LookupError as e:
                 return self.say(chat, str(e))
-            except requests.RequestException as e:
-                return self.say(chat, f"Карта OpenStreetMap не ответила ({type(e).__name__}). Попробуйте через минуту.")
+            except MapError as e:
+                return self.say(chat, f"Карта OpenStreetMap не ответила.\n{e}\n\nПопробуйте через пару минут. "
+                                      "Если повторится — пришлите мне этот текст.")
             skip = set(self.st["skip"]) | set(self.st["seen"]) | p.load_suppression(HERE / "do_not_contact.txt")
             fresh = [b for b in found if b["domain"] not in skip][:MAX_SITES]
             if not fresh:

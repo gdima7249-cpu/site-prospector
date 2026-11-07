@@ -80,6 +80,45 @@ class BotTests(unittest.TestCase):
         with mock.patch.object(bot.requests, "get", return_value=resp([])), self.assertRaises(LookupError):
             bot.find_businesses("стоматология", "Нигдеград")
 
+    def test_overpass_mirror_fallback(self):
+        nominatim = resp([{"boundingbox": ["55.6", "55.9", "48.8", "49.4"]}])
+        busy = mock.Mock(status_code=504, text="timeout")
+        good = resp({"elements": [{"tags": {"name": "А", "website": "https://a-dent.ru"}}]})
+        with mock.patch.object(bot.requests, "get", return_value=nominatim), \
+                mock.patch.object(bot.requests, "post", side_effect=[busy, good]) as post:
+            found = bot.find_businesses("стоматология", "Казань")
+        self.assertEqual([b["domain"] for b in found], ["a-dent.ru"])
+        self.assertEqual(post.call_args_list[1].args[0], bot.OVERPASS_URLS[1])
+
+    def test_map_errors_are_specific(self):
+        nominatim = resp([{"boundingbox": ["55.6", "55.9", "48.8", "49.4"]}])
+        fails = [mock.Mock(status_code=429, text=""), bot.requests.ConnectionError(), mock.Mock(status_code=504, text="")]
+        with mock.patch.object(bot.requests, "get", return_value=nominatim), \
+                mock.patch.object(bot.requests, "post", side_effect=fails), self.assertRaises(bot.MapError) as cm:
+            bot.find_businesses("стоматология", "Казань")
+        msg = str(cm.exception)
+        self.assertIn("overpass-api.de: HTTP 429 — слишком много запросов", msg)
+        self.assertIn("overpass.kumi.systems: ConnectionError", msg)
+        self.assertIn("HTTP 504", msg)
+
+        denied = mock.Mock(status_code=403, text="blocked")
+        with mock.patch.object(bot.requests, "get", return_value=denied) as get, \
+                mock.patch.object(bot.time, "sleep"), self.assertRaises(bot.MapError) as cm:
+            bot.find_city("Казань")
+        self.assertEqual(get.call_count, 2)  # одна повторная попытка
+        self.assertIn("nominatim.openstreetmap.org: HTTP 403 — доступ запрещён", str(cm.exception))
+        self.assertIn("github.com", get.call_args.kwargs["headers"]["User-Agent"])
+
+    def test_map_error_reaches_user(self):
+        b = bot.Bot("TOKEN")
+        said = []
+        b.say = lambda chat, text: said.append(text)
+        with mock.patch.object(bot, "find_businesses", side_effect=bot.MapError("поиск города: HTTP 403")):
+            b.busy.acquire()
+            b.search(1, "кафе", "Казань")
+        self.assertIn("HTTP 403", said[-1])
+        self.assertFalse(b.busy.locked())
+
     def test_search_flow(self):
         b = bot.Bot("TOKEN")
         said, files = [], []
