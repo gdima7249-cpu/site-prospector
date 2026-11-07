@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" role="img" aria-label="Иллюстрация: удаление вмятины">
+  <defs>
+    <linearGradient id="t" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#eef1f6"/><stop offset="1" stop-color="#dfe5ee"/></linearGradient>
+    <linearGradient id="o" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff8a3d"/><stop offset="1" stop-color="#d9510b"/></linearGradient>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9aa6b8"/><stop offset="1" stop-color="#6f7c90"/></linearGradient>
+  </defs>
+  <rect width="400" height="300" fill="url(#t)"/>
+  <circle cx="340" cy="50" r="70" fill="#fff" opacity=".6"/>
+
+  <path d="M40 220 Q40 120 120 104 L300 96 Q352 96 360 150 L366 220 Z" fill="url(#g)"/>
+  <ellipse cx="150" cy="168" rx="46" ry="26" fill="#58657a"/>
+  <ellipse cx="150" cy="168" rx="30" ry="16" fill="#4b576b"/>
+  <ellipse cx="150" cy="168" rx="14" ry="7" fill="#404b5d"/>
+  <path d="M212 168 L262 168" stroke="#e8590c" stroke-width="8" stroke-linecap="round"/>
+  <path d="M252 152 L272 168 L252 184" fill="none" stroke="#e8590c" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M290 150 Q310 142 330 150" stroke="#fff" stroke-width="5" stroke-linecap="round" fill="none" opacity=".8"/>
+  <path d="M296 176 Q312 170 326 176" stroke="#fff" stroke-width="4" stroke-linecap="round" fill="none" opacity=".6"/>
+</svg>
