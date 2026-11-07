@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- ЗАМЕНИТЬ: название, город, главная услуга. ~60 символов -->
+<title>Гараж 55 — кузовной ремонт и покраска в Омске</title>
+<!-- ЗАМЕНИТЬ: что, для кого, где. ~150 символов -->
+<meta name="description" content="Кузовной ремонт, покраска и удаление вмятин в Советском округе Омска. Цены от 2 500 ₽, запись по телефону. Пн–Сб 9:00–20:00.">
+<meta name="theme-color" content="#1b2a41">
+<!-- Данные для Яндекса и Google: карточка организации в поиске. ЗАМЕНИТЬ вместе с текстом страницы -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "AutoRepair",
+  "name": "Гараж 55",
+  "telephone": "+79000000000",
+  "address": {"@type": "PostalAddress", "addressLocality": "Омск", "streetAddress": "ул. Примерная, 12"},
+  "geo": {"@type": "GeoCoordinates", "latitude": 54.9885, "longitude": 73.3242},
+  "openingHours": "Mo-Sa 09:00-20:00",
+  "priceRange": "от 2 500 ₽"
+}
+</script>
+<style>
+  :root {
+    --ink: #16202e;
+    --muted: #5b6676;
+    --bg: #f6f4ef;
+    --card: #ffffff;
+    --brand: #1b2a41;
+    --accent: #e8590c;     /* кнопка звонка: самый заметный цвет на странице */
+    --accent-ink: #ffffff;
+    --ok: #2b8a3e;
+    --closed: #c92a2a;
+    --line: #e4e0d6;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 17px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  a { color: inherit; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+
+  /* плашка демо */
+  .demo {
+    background: #fff3bf; color: #5c4400; font-size: 14px; text-align: center;
+    padding: 8px 16px; border-bottom: 1px solid #f0d97a;
+  }
+
+  /* первый экран */
+  .hero { background: var(--brand); color: #fff; padding: 28px 0 32px; }
+  .status {
+    display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600;
+    background: rgba(255,255,255,.12); border-radius: 999px; padding: 5px 12px; margin-bottom: 14px;
+  }
+  .status::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--ok); }
+  .status.closed::before { background: var(--closed); }
+  .hero h1 { font-size: 34px; line-height: 1.15; margin: 0 0 8px; letter-spacing: -.01em; }
+  .hero .what { font-size: 19px; margin: 0 0 4px; color: #e7ecf3; }
+  .hero .where { font-size: 15px; margin: 0 0 20px; color: #b9c3d1; }
+  .phone-big {
+    display: block; font-size: 30px; font-weight: 800; text-decoration: none; margin: 0 0 16px;
+    letter-spacing: .01em;
+  }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-width: 460px; }
+  .btn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 54px; padding: 0 18px; border-radius: 12px; font-weight: 700; font-size: 17px;
+    text-decoration: none; border: 2px solid transparent;
+  }
+  .btn-call { background: var(--accent); color: var(--accent-ink); }
+  .btn-route { border-color: rgba(255,255,255,.55); color: #fff; }
+  .btn svg { width: 20px; height: 20px; flex: none; }
+
+  /* секции */
+  section { padding: 32px 0 8px; }
+  h2 { font-size: 24px; line-height: 1.2; margin: 0 0 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+
+  .prices { list-style: none; margin: 0; padding: 4px 16px; }
+  .prices li {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 16px;
+    padding: 13px 0; border-bottom: 1px solid var(--line);
+  }
+  .prices li:last-child { border-bottom: 0; }
+  .prices .price { font-weight: 700; white-space: nowrap; }
+  .prices .ask { color: var(--muted); font-weight: 500; font-size: 15px; white-space: nowrap; }
+  .note { color: var(--muted); font-size: 14px; margin: 10px 2px 0; }
+
+  .praise { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+  .praise li { padding: 14px 16px; display: flex; gap: 12px; align-items: flex-start; }
+  .praise .mark { color: var(--ok); font-weight: 800; font-size: 20px; line-height: 1.2; }
+  .praise b { display: block; }
+  .praise span { color: var(--muted); font-size: 15px; }
+
+  .rating { padding: 18px 16px; }
+  .score { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .score .num { font-size: 40px; font-weight: 800; line-height: 1; }
+  .stars { color: #f59f00; font-size: 20px; letter-spacing: 2px; }
+  .score small { display: block; color: var(--muted); font-size: 14px; }
+  .rating p { margin: 0 0 10px; }
+  .source { font-size: 15px; font-weight: 600; }
+
+  .place { overflow: hidden; }
+  .place dl { margin: 0; padding: 16px; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; }
+  .place dt { color: var(--muted); }
+  .place dd { margin: 0; font-weight: 600; }
+  .map { width: 100%; height: 300px; border: 0; display: block; background: #e9e6de; }
+
+  .final { text-align: center; padding: 36px 0 120px; }
+  .final p { margin: 0 0 16px; color: var(--muted); }
+  .final .btn-call { max-width: 360px; margin: 0 auto; }
+  footer { color: var(--muted); font-size: 13px; text-align: center; padding: 0 16px 100px; }
+
+  /* плавающая кнопка звонка: только на телефоне и только после первого экрана */
+  .float-call {
+    position: fixed; left: 16px; right: 16px; bottom: max(16px, env(safe-area-inset-bottom));
+    z-index: 10; box-shadow: 0 8px 24px rgba(0,0,0,.25);
+    transform: translateY(150%); transition: transform .25s ease;
+  }
+  .float-call.show { transform: none; }
+
+  @media (min-width: 760px) {
+    .hero { padding: 48px 0; }
+    .hero h1 { font-size: 46px; }
+    .phone-big { font-size: 36px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+    .float-call { display: none; }
+    .final, footer { padding-bottom: 40px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .float-call { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- УДАЛИТЬ на боевом сайте клиента -->
+<div class="demo">Демо-концепт. Компания, цены и отзывы вымышлены.</div>
+
+<header class="hero">
+  <div class="wrap">
+    <!-- Часы работы для бейджа: дни 1=Пн…7=Вс, время, часовой пояс компании. ЗАМЕНИТЬ -->
+    <div class="status" id="status"
+         data-tz="Asia/Omsk"
+         data-hours='{"1":["09:00","20:00"],"2":["09:00","20:00"],"3":["09:00","20:00"],"4":["09:00","20:00"],"5":["09:00","20:00"],"6":["09:00","20:00"]}'>
+      Открыто до 20:00
+    </div>
+    <h1>Гараж 55</h1>
+    <p class="what">Кузовной ремонт и покраска легковых авто</p>
+    <p class="where">Омск, Советский округ · ул. Примерная, 12</p>
+    <a class="phone-big" href="tel:+79000000000">+7 900 000-00-00</a>
+    <div class="actions">
+      <a class="btn btn-call" href="tel:+79000000000">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>
+        Позвонить
+      </a>
+      <!-- Маршрут в Яндекс Картах до точки (широта,долгота). ЗАМЕНИТЬ координаты -->
+      <a class="btn btn-route" href="https://yandex.ru/maps/?rtext=~54.9885,73.3242&amp;rtt=auto" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>
+        Маршрут
+      </a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section id="prices">
+    <h2>Услуги и цены</h2>
+    <!-- Только цены, которые клиент подтвердил. Нет цены — «уточняйте по телефону», не придумывать -->
+    <ul class="prices card">
+      <li><span>Удаление вмятин без покраски</span><span class="price">от 2 500 ₽</span></li>
+      <li><span>Покраска одной детали</span><span class="price">от 7 000 ₽</span></li>
+      <li><span>Полировка кузова</span><span class="price">от 6 000 ₽</span></li>
+      <li><span>Ремонт бампера</span><span class="price">от 4 000 ₽</span></li>
+      <li><span>Восстановление после ДТП</span><span class="ask">уточняйте по телефону</span></li>
+      <li><span>Ремонт по страховке (ОСАГО, КАСКО)</span><span class="ask">уточняйте по телефону</span></li>
+    </ul>
+    <p class="note">Точная цена — после осмотра, осмотр бесплатный.</p>
+  </section>
+
+  <div class="grid2">
+    <section id="praise">
+      <h2>За что хвалят</h2>
+      <!-- 3 пункта, взятые из настоящих отзывов клиента (Яндекс Карты, 2ГИС). Своими словами, без выдумок -->
+      <ul class="praise">
+        <li class="card"><span class="mark">✓</span><div><b>Цвет не отличить</b><span>Подбирают краску так, что деталь не выделяется даже на солнце</span></div></li>
+        <li class="card"><span class="mark">✓</span><div><b>Сроки как обещали</b><span>Машину отдают в назначенный день, о задержках предупреждают</span></div></li>
+        <li class="card"><span class="mark">✓</span><div><b>Цена не растёт</b><span>Сумма после осмотра совпадает с итоговой</span></div></li>
+      </ul>
+    </section>
+
+    <section id="rating">
+      <h2>Рейтинг и отзывы</h2>
+      <div class="card rating">
+        <!-- Рейтинг, число отзывов и ссылка — точно как в источнике на дату обновления -->
+        <div class="score">
+          <span class="num">4,8</span>
+          <div><span class="stars" aria-label="4,8 из 5">★★★★★</span><small>214 отзывов на Яндекс Картах</small></div>
+        </div>
+        <!-- Пересказ: что чаще всего пишут, в том числе минусы — так честнее и больше доверия -->
+        <p>Чаще всего пишут про аккуратную покраску и то, что мастер сам показывает повреждения до начала работ. Из минусов — в сезон запись на 3–5 дней вперёд.</p>
+        <a class="source" href="https://yandex.ru/maps/" target="_blank" rel="noopener">Читать отзывы на Яндекс Картах →</a>
+      </div>
+    </section>
+  </div>
+
+  <section id="place">
+    <h2>Как нас найти</h2>
+    <div class="card place">
+      <dl>
+        <dt>Адрес</dt><dd>Омск, ул. Примерная, 12, въезд со двора</dd>
+        <dt>Часы</dt><dd>Пн–Сб 9:00–20:00, Вс — выходной</dd>
+        <dt>Телефон</dt><dd><a href="tel:+79000000000">+7 900 000-00-00</a></dd>
+      </dl>
+      <!-- Карта Яндекса: ll и pt — ДОЛГОТА,ШИРОТА (наоборот, чем в ссылке «Маршрут»). ЗАМЕНИТЬ -->
+      <iframe class="map" title="Карта: Гараж 55" loading="lazy"
+              src="https://yandex.ru/map-widget/v1/?ll=73.3242%2C54.9885&amp;z=16&amp;pt=73.3242%2C54.9885%2Cpm2rdm"></iframe>
+    </div>
+  </section>
+
+  <section class="final">
+    <h2>Посмотрим машину бесплатно</h2>
+    <p>Позвоните — подскажем цену и время, когда можно подъехать.</p>
+    <a class="btn btn-call" href="tel:+79000000000">Позвонить +7 900 000-00-00</a>
+  </section>
+</main>
+
+<footer>© <span id="year">2026</span> Гараж 55, Омск</footer>
+
+<a class="btn btn-call float-call" id="floatCall" href="tel:+79000000000" aria-label="Позвонить">
+  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>
+  Позвонить
+</a>
+
+<script>
+// Бейдж «Открыто до …» по часам работы в часовом поясе компании (не посетителя).
+(function () {
+  var el = document.getElementById("status");
+  var hours = JSON.parse(el.dataset.hours);
+  var tz = el.dataset.tz;
+  var names = ["", "понедельник", "вторник", "среду", "четверг", "пятницу", "субботу", "воскресенье"];
+  function nowIn(tz) {
+    var parts = {};
+    new Intl.DateTimeFormat("en-GB", {timeZone: tz, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23"})
+      .formatToParts(new Date()).forEach(function (p) { parts[p.type] = p.value; });
+    var day = {Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7}[parts.weekday];
+    return {day: day, time: parts.hour + ":" + parts.minute};
+  }
+  function short(t) { return t.replace(/^0/, ""); }
+  function nextOpen(day) {
+    for (var i = 1; i <= 7; i++) {
+      var d = (day - 1 + i) % 7 + 1;
+      if (hours[d]) return (i === 1 ? "завтра" : "в " + names[d]) + " в " + short(hours[d][0]);
+    }
+    return "";
+  }
+  var n = nowIn(tz), today = hours[n.day];
+  if (today && n.time >= today[0] && n.time < today[1]) {
+    el.textContent = "Открыто до " + short(today[1]);
+  } else if (today && n.time < today[0]) {
+    el.textContent = "Закрыто · откроется в " + short(today[0]);
+    el.classList.add("closed");
+  } else {
+    el.textContent = "Закрыто · откроется " + nextOpen(n.day);
+    el.classList.add("closed");
+  }
+  document.getElementById("year").textContent = new Date().getFullYear();
+
+  // Плавающая кнопка появляется, когда первый экран с телефоном ушёл вверх, и прячется у финальной кнопки
+  var btn = document.getElementById("floatCall");
+  var hero = document.querySelector(".hero"), final = document.querySelector(".final");
+  if ("IntersectionObserver" in window) {
+    var heroGone = false, finalVisible = false;
+    function update() { btn.classList.toggle("show", heroGone && !finalVisible); }
+    new IntersectionObserver(function (e) { heroGone = !e[0].isIntersecting; update(); }).observe(hero);
+    new IntersectionObserver(function (e) { finalVisible = e[0].isIntersecting; update(); }).observe(final);
+  } else {
+    btn.classList.add("show");
+  }
+})();
+</script>
+</body>
+</html>
