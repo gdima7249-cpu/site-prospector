@@ -190,6 +190,12 @@ class Tests(unittest.TestCase):
         self.assertFalse(a.ok)
         self.assertIn("404", a.error)
 
+    def test_counter_comment_is_not_email(self):
+        html = ('<!--Rating@Mail.ru counter--><a href="mailto:--rating@mail.ru">x</a>'
+                '<p>Почта: 9774507@mail.ru, a--b@x.ru</p>')
+        emails = p.extract_emails(html, p.BeautifulSoup(html, "html.parser"), "kuzovomsk.ru")
+        self.assertEqual(sorted(emails), ["9774507@mail.ru", "a--b@x.ru"])
+
     def test_email_order(self):
         emails = ["lerner1966@mail.ru", "zyb-ok@mail.ru", "ivan.petrov@gmail.com", "info@clinic.ru", "doc@zyb-ok.ru"]
         ranked = sorted(emails, key=lambda e: p.email_rank(e, "zyb-ok.ru"))

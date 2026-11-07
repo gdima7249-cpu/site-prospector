@@ -61,7 +61,10 @@ ISSUES = {
 
 GENERIC_MAILBOXES = {"info", "office", "mail", "sales", "hello", "contact", "contacts", "admin", "support",
                      "zakaz", "order", "manager", "reception", "secretary", "post", "pochta", "biz", "team"}
-EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+# адрес начинается с буквы или цифры и не продолжает чужое слово («--rating@mail.ru» — не адрес)
+EMAIL_RE = re.compile(r"(?<![\w.%+-])[A-Za-z0-9][A-Za-z0-9._%+-]*@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+# не почта компании: подписи счётчиков посещаемости в коде страницы
+BAD_EMAILS = {"rating@mail.ru", "top@mail.ru", "counter@mail.ru"}
 BAD_EMAIL_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".css", ".js")
 BAD_EMAIL_DOMAINS = ("example.com", "example.ru", "sentry.io", "wixpress.com", "domain.com", "email.com", "mail.example")
 # признаки заглушки: домен продаётся, сайт не опубликован, пустая страница хостинга
@@ -190,7 +193,8 @@ def extract_emails(html: str, soup: BeautifulSoup, domain: str) -> list[str]:
     clean = []
     for e in found:
         e = e.strip().strip(".").lower()
-        if not EMAIL_RE.fullmatch(e) or e.endswith(BAD_EMAIL_SUFFIXES) or e.split("@")[1] in BAD_EMAIL_DOMAINS:
+        if not EMAIL_RE.fullmatch(e) or e.endswith(BAD_EMAIL_SUFFIXES) or e.split("@")[1] in BAD_EMAIL_DOMAINS \
+                or e in BAD_EMAILS:
             continue
         clean.append(e)
     return sorted(set(clean), key=lambda e: email_rank(e, domain))
