@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" role="img" aria-label="Иллюстрация: полировка кузова">
+  <defs>
+    <linearGradient id="t" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#eef1f6"/><stop offset="1" stop-color="#dfe5ee"/></linearGradient>
+    <linearGradient id="o" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff8a3d"/><stop offset="1" stop-color="#d9510b"/></linearGradient>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9aa6b8"/><stop offset="1" stop-color="#6f7c90"/></linearGradient>
+  </defs>
+  <rect width="400" height="300" fill="url(#t)"/>
+  <circle cx="340" cy="50" r="70" fill="#fff" opacity=".6"/>
+
+  <path d="M30 230 Q60 130 160 118 L330 112 Q370 114 376 170 L376 230 Z" fill="url(#o)"/>
+  <path d="M90 150 Q160 126 250 124" stroke="#fff" stroke-width="10" stroke-linecap="round" fill="none" opacity=".35"/>
+  <g transform="translate(250 170)"><circle r="44" fill="#1b2a41"/><circle r="34" fill="#f4f1ea"/><circle r="10" fill="#1b2a41"/><rect x="30" y="-12" width="70" height="24" rx="12" fill="#1b2a41"/></g>
+  <g fill="#fff"><path d="M130 160 l6 15 15 6 -15 6 -6 15 -6 -15 -15 -6 15 -6z"/><path d="M182 196 l4 9 9 4 -9 4 -4 9 -4 -9 -9 -4 9 -4z" opacity=".85"/><path d="M96 196 l3 7 7 3 -7 3 -3 7 -3 -7 -7 -3 7 -3z" opacity=".7"/></g>
+</svg>

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 300" role="img" aria-label="Иллюстрация: автомобиль после покраски">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2a3d5c"/><stop offset="1" stop-color="#16233a"/></linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff8a3d"/><stop offset=".55" stop-color="#e8590c"/><stop offset="1" stop-color="#b8430a"/></linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#cfe3ff"/><stop offset="1" stop-color="#7f9cc4"/></linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+    <clipPath id="carclip"><path d="M52 198 Q50 168 84 160 L162 150 Q196 106 244 98 L340 96 Q388 99 420 142 L470 150 Q498 156 500 186 L500 202 Q500 214 486 214 L66 214 Q52 214 52 198 Z"/></clipPath>
+  </defs>
+  <rect width="520" height="300" fill="url(#bg)"/>
+  <circle cx="430" cy="70" r="90" fill="#ffffff" opacity=".04"/>
+  <circle cx="90" cy="60" r="50" fill="#ffffff" opacity=".04"/>
+  <ellipse cx="276" cy="232" rx="220" ry="14" fill="#000" opacity=".35"/>
+  <path d="M52 198 Q50 168 84 160 L162 150 Q196 106 244 98 L340 96 Q388 99 420 142 L470 150 Q498 156 500 186 L500 202 Q500 214 486 214 L66 214 Q52 214 52 198 Z" fill="url(#body)"/>
+  <g clip-path="url(#carclip)"><rect x="150" y="80" width="70" height="160" fill="url(#shine)" transform="rotate(18 185 160)"/></g>
+  <path d="M188 148 Q210 114 246 108 L296 108 L296 148 Z" fill="url(#glass)"/>
+  <path d="M308 108 L338 108 Q372 112 398 148 L308 148 Z" fill="url(#glass)"/>
+  <path d="M302 106 L302 206" stroke="#a63c08" stroke-width="2" opacity=".6"/>
+  <path d="M210 168 L240 168 M330 168 L360 168" stroke="#a63c08" stroke-width="4" stroke-linecap="round" opacity=".7"/>
+  <path d="M470 168 Q488 170 492 182 L470 182 Z" fill="#fff4c2"/>
+  <path d="M58 178 L80 174 L80 186 L58 188 Z" fill="#ff4d4d" opacity=".9"/>
+  <g><circle cx="148" cy="212" r="36" fill="#141c2a"/><circle cx="148" cy="212" r="17" fill="#c9d2de"/><circle cx="148" cy="212" r="6" fill="#141c2a"/></g>
+  <g><circle cx="410" cy="212" r="36" fill="#141c2a"/><circle cx="410" cy="212" r="17" fill="#c9d2de"/><circle cx="410" cy="212" r="6" fill="#141c2a"/></g>
+  <g fill="#fff"><path d="M118 92 l5 13 13 5 -13 5 -5 13 -5 -13 -13 -5 13 -5z" opacity=".85"/><path d="M456 108 l3 8 8 3 -8 3 -3 8 -3 -8 -8 -3 8 -3z" opacity=".7"/><path d="M380 62 l2.5 6 6 2.5 -6 2.5 -2.5 6 -2.5 -6 -6 -2.5 6 -2.5z" opacity=".6"/></g>
+</svg>

@@ -2,12 +2,15 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- ЗАМЕНИТЬ: название, город, главная услуга. ~60 символов -->
 <title>Гараж 55 — кузовной ремонт и покраска в Омске</title>
 <!-- ЗАМЕНИТЬ: что, для кого, где. ~150 символов -->
 <meta name="description" content="Кузовной ремонт, покраска и удаление вмятин в Советском округе Омска. Цены от 2 500 ₽, запись по телефону. Пн–Сб 9:00–20:00.">
-<meta name="theme-color" content="#1b2a41">
+<meta name="theme-color" content="#16233a">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
 <!-- Данные для Яндекса и Google: карточка организации в поиске. ЗАМЕНИТЬ вместе с текстом страницы -->
 <script type="application/ld+json">
 {
@@ -23,118 +26,165 @@
 </script>
 <style>
   :root {
-    --ink: #16202e;
-    --muted: #5b6676;
-    --bg: #f6f4ef;
+    --ink: #121a27;
+    --muted: #5d6879;
+    --bg: #f5f6f8;
     --card: #ffffff;
-    --brand: #1b2a41;
-    --accent: #e8590c;     /* кнопка звонка: самый заметный цвет на странице */
-    --accent-ink: #ffffff;
+    --brand: #16233a;        /* фон первого экрана и финального блока */
+    --brand-2: #22365a;
+    --accent: #e8590c;       /* кнопка звонка: самый заметный цвет на странице */
+    --accent-2: #ff7a2f;
     --ok: #2b8a3e;
-    --closed: #c92a2a;
-    --line: #e4e0d6;
-    --radius: 14px;
+    --closed: #e03131;
+    --line: #e6e9ef;
+    --radius: 20px;
+    --shadow: 0 1px 2px rgba(18,26,39,.04), 0 8px 24px rgba(18,26,39,.06);
   }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
   body {
     margin: 0; background: var(--bg); color: var(--ink);
-    font: 17px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-    -webkit-text-size-adjust: 100%;
+    font: 500 17px/1.55 Manrope, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased;
   }
   a { color: inherit; }
-  .wrap { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+  img { max-width: 100%; height: auto; display: block; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
 
   /* плашка демо */
-  .demo {
-    background: #fff3bf; color: #5c4400; font-size: 14px; text-align: center;
-    padding: 8px 16px; border-bottom: 1px solid #f0d97a;
-  }
+  .demo { background: #fff3bf; color: #5c4400; font-size: 14px; text-align: center; padding: 8px 16px; }
 
-  /* первый экран */
-  .hero { background: var(--brand); color: #fff; padding: 28px 0 32px; }
+  /* ───── первый экран ───── */
+  .hero {
+    color: #fff; padding: 24px 0 28px; position: relative; overflow: hidden;
+    background:
+      radial-gradient(600px 300px at 90% 0%, rgba(255,122,47,.18), transparent 70%),
+      radial-gradient(500px 400px at 0% 100%, rgba(80,130,220,.18), transparent 70%),
+      linear-gradient(160deg, var(--brand-2), var(--brand));
+  }
+  .hero-grid { display: grid; gap: 22px; align-items: center; }
   .status {
-    display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600;
-    background: rgba(255,255,255,.12); border-radius: 999px; padding: 5px 12px; margin-bottom: 14px;
+    display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700;
+    background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.14);
+    border-radius: 999px; padding: 6px 12px; margin-bottom: 14px; backdrop-filter: blur(6px);
   }
-  .status::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--ok); }
-  .status.closed::before { background: var(--closed); }
-  .hero h1 { font-size: 34px; line-height: 1.15; margin: 0 0 8px; letter-spacing: -.01em; }
-  .hero .what { font-size: 19px; margin: 0 0 4px; color: #e7ecf3; }
-  .hero .where { font-size: 15px; margin: 0 0 20px; color: #b9c3d1; }
-  .phone-big {
-    display: block; font-size: 30px; font-weight: 800; text-decoration: none; margin: 0 0 16px;
-    letter-spacing: .01em;
-  }
+  .status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #51cf66;
+    box-shadow: 0 0 0 4px rgba(81,207,102,.2); }
+  .status.closed::before { background: var(--closed); box-shadow: 0 0 0 4px rgba(224,49,49,.2); }
+  .hero h1 { font-size: 36px; line-height: 1.1; margin: 0 0 8px; font-weight: 800; letter-spacing: -.02em; }
+  .hero .what { font-size: 19px; margin: 0 0 4px; color: #e6ebf3; font-weight: 600; }
+  .hero .where { font-size: 15px; margin: 0 0 18px; color: #aeb9ca; }
+  .phone-big { display: inline-block; font-size: 30px; font-weight: 800; text-decoration: none; margin: 0 0 16px;
+    letter-spacing: -.01em; }
   .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-width: 460px; }
   .btn {
     display: flex; align-items: center; justify-content: center; gap: 8px;
-    min-height: 54px; padding: 0 18px; border-radius: 12px; font-weight: 700; font-size: 17px;
-    text-decoration: none; border: 2px solid transparent;
+    min-height: 56px; padding: 0 20px; border-radius: 16px; font-weight: 800; font-size: 17px;
+    text-decoration: none; border: 1px solid transparent; transition: transform .15s ease, box-shadow .15s ease;
   }
-  .btn-call { background: var(--accent); color: var(--accent-ink); }
-  .btn-route { border-color: rgba(255,255,255,.55); color: #fff; }
+  .btn:active { transform: scale(.98); }
+  .btn-call { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: #fff;
+    box-shadow: 0 8px 20px rgba(232,89,12,.35); }
+  .btn-route { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.28); color: #fff; }
   .btn svg { width: 20px; height: 20px; flex: none; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 0; padding: 0; list-style: none; }
+  .chips li { font-size: 14px; font-weight: 600; color: #dbe3ef; background: rgba(255,255,255,.07);
+    border-radius: 999px; padding: 6px 12px; }
+  .hero-art img { width: 100%; border-radius: 24px; box-shadow: 0 20px 50px rgba(0,0,0,.35); }
 
-  /* секции */
-  section { padding: 32px 0 8px; }
-  h2 { font-size: 24px; line-height: 1.2; margin: 0 0 16px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+  /* ───── секции ───── */
+  section { padding: 40px 0 0; }
+  .eyebrow { font-size: 13px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--accent);
+    margin: 0 0 6px; }
+  h2 { font-size: 26px; line-height: 1.2; margin: 0 0 18px; font-weight: 800; letter-spacing: -.01em; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
 
-  .prices { list-style: none; margin: 0; padding: 4px 16px; }
-  .prices li {
-    display: flex; justify-content: space-between; align-items: baseline; gap: 16px;
-    padding: 13px 0; border-bottom: 1px solid var(--line);
-  }
-  .prices li:last-child { border-bottom: 0; }
-  .prices .price { font-weight: 700; white-space: nowrap; }
-  .prices .ask { color: var(--muted); font-weight: 500; font-size: 15px; white-space: nowrap; }
-  .note { color: var(--muted); font-size: 14px; margin: 10px 2px 0; }
+  /* услуги */
+  .services { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+  .services li { display: flex; align-items: center; gap: 14px; padding: 14px 16px; }
+  .ico { width: 44px; height: 44px; border-radius: 14px; flex: none; display: grid; place-items: center;
+    background: #fff1e8; color: var(--accent); }
+  .ico svg { width: 22px; height: 22px; }
+  .services .name { flex: 1; font-weight: 700; line-height: 1.3; }
+  .services .price { font-weight: 800; white-space: nowrap; }
+  .services .ask { color: var(--muted); font-weight: 600; font-size: 14px; text-align: right; line-height: 1.25; }
+  .note { color: var(--muted); font-size: 14px; margin: 12px 2px 0; }
 
+  /* работы */
+  .works { display: grid; grid-auto-flow: column; grid-auto-columns: 78%; gap: 12px; overflow-x: auto;
+    scroll-snap-type: x mandatory; padding: 2px 16px 12px; margin: 0 -16px; list-style: none;
+    scrollbar-width: none; }
+  .works::-webkit-scrollbar { display: none; }
+  .works li { scroll-snap-align: start; overflow: hidden; }
+  .works img { aspect-ratio: 4 / 3; object-fit: cover; width: 100%; }
+  .works .cap { padding: 12px 14px 14px; }
+  .works b { display: block; font-size: 16px; }
+  .works span { color: var(--muted); font-size: 14px; }
+  .swipe { color: var(--muted); font-size: 13px; margin: 0 2px; }
+
+  /* хвалят */
   .praise { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
-  .praise li { padding: 14px 16px; display: flex; gap: 12px; align-items: flex-start; }
-  .praise .mark { color: var(--ok); font-weight: 800; font-size: 20px; line-height: 1.2; }
-  .praise b { display: block; }
+  .praise li { padding: 16px; display: flex; gap: 14px; align-items: flex-start; }
+  .praise .mark { width: 32px; height: 32px; border-radius: 10px; background: #e9f7ec; color: var(--ok);
+    display: grid; place-items: center; flex: none; font-weight: 800; }
+  .praise b { display: block; line-height: 1.3; margin-bottom: 2px; }
   .praise span { color: var(--muted); font-size: 15px; }
 
-  .rating { padding: 18px 16px; }
-  .score { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-  .score .num { font-size: 40px; font-weight: 800; line-height: 1; }
+  /* рейтинг */
+  .rating { padding: 20px; }
+  .score { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+  .score .num { font-size: 52px; font-weight: 800; line-height: 1; letter-spacing: -.03em; }
   .stars { color: #f59f00; font-size: 20px; letter-spacing: 2px; }
   .score small { display: block; color: var(--muted); font-size: 14px; }
-  .rating p { margin: 0 0 10px; }
-  .source { font-size: 15px; font-weight: 600; }
+  .rating p { margin: 0 0 14px; }
+  .source { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 800; color: var(--accent);
+    text-decoration: none; }
 
-  .place { overflow: hidden; }
-  .place dl { margin: 0; padding: 16px; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; }
-  .place dt { color: var(--muted); }
-  .place dd { margin: 0; font-weight: 600; }
-  .map { width: 100%; height: 300px; border: 0; display: block; background: #e9e6de; }
+  /* адрес и карта */
+  .place { overflow: hidden; display: grid; }
+  .place dl { margin: 0; padding: 20px; display: grid; gap: 14px; }
+  .place dt { color: var(--muted); font-size: 14px; }
+  .place dd { margin: 2px 0 0; font-weight: 700; }
+  .map { width: 100%; height: 300px; border: 0; display: block; background: #e7eaf0; }
 
-  .final { text-align: center; padding: 36px 0 120px; }
-  .final p { margin: 0 0 16px; color: var(--muted); }
-  .final .btn-call { max-width: 360px; margin: 0 auto; }
-  footer { color: var(--muted); font-size: 13px; text-align: center; padding: 0 16px 100px; }
+  /* финал */
+  .final { margin: 44px 0 0; }
+  .final-box {
+    color: #fff; text-align: center; padding: 32px 20px; border-radius: 28px;
+    background: radial-gradient(400px 200px at 80% 0%, rgba(255,122,47,.25), transparent 70%),
+                linear-gradient(160deg, var(--brand-2), var(--brand));
+  }
+  .final h2 { margin-bottom: 8px; }
+  .final p { margin: 0 0 20px; color: #c3cddb; }
+  .final .btn-call { max-width: 380px; margin: 0 auto; }
+  footer { color: var(--muted); font-size: 13px; text-align: center; padding: 28px 16px 110px; }
 
   /* плавающая кнопка звонка: только на телефоне и только после первого экрана */
   .float-call {
     position: fixed; left: 16px; right: 16px; bottom: max(16px, env(safe-area-inset-bottom));
-    z-index: 10; box-shadow: 0 8px 24px rgba(0,0,0,.25);
-    transform: translateY(150%); transition: transform .25s ease;
+    z-index: 10; transform: translateY(160%); transition: transform .25s ease;
   }
   .float-call.show { transform: none; }
 
   @media (min-width: 760px) {
-    .hero { padding: 48px 0; }
-    .hero h1 { font-size: 46px; }
+    .hero { padding: 56px 0; }
+    .hero-grid { grid-template-columns: 1.05fr 1fr; gap: 40px; }
+    .hero h1 { font-size: 52px; }
     .phone-big { font-size: 36px; }
+    .services { grid-template-columns: 1fr 1fr; }
+    .works { grid-auto-flow: row; grid-template-columns: repeat(4, 1fr); overflow: visible; margin: 0; padding: 0; }
+    .swipe { display: none; }
     .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+    .place { grid-template-columns: 340px 1fr; }
+    .map { height: 100%; min-height: 320px; }
+    .final-box { padding: 48px; }
     .float-call { display: none; }
-    .final, footer { padding-bottom: 40px; }
+    footer { padding-bottom: 32px; }
+    .btn:hover { transform: translateY(-1px); }
   }
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
-    .float-call { transition: none; }
+    .btn, .float-call { transition: none; }
   }
 </style>
 </head>
@@ -144,49 +194,80 @@
 <div class="demo">Демо-концепт. Компания, цены и отзывы вымышлены.</div>
 
 <header class="hero">
-  <div class="wrap">
-    <!-- Часы работы для бейджа: дни 1=Пн…7=Вс, время, часовой пояс компании. ЗАМЕНИТЬ -->
-    <div class="status" id="status"
-         data-tz="Asia/Omsk"
-         data-hours='{"1":["09:00","20:00"],"2":["09:00","20:00"],"3":["09:00","20:00"],"4":["09:00","20:00"],"5":["09:00","20:00"],"6":["09:00","20:00"]}'>
-      Открыто до 20:00
+  <div class="wrap hero-grid">
+    <div>
+      <!-- Часы работы для бейджа: дни 1=Пн…7=Вс, время, часовой пояс компании. ЗАМЕНИТЬ -->
+      <div class="status" id="status"
+           data-tz="Asia/Omsk"
+           data-hours='{"1":["09:00","20:00"],"2":["09:00","20:00"],"3":["09:00","20:00"],"4":["09:00","20:00"],"5":["09:00","20:00"],"6":["09:00","20:00"]}'>
+        Открыто до 20:00
+      </div>
+      <h1>Гараж 55</h1>
+      <p class="what">Кузовной ремонт и покраска легковых авто</p>
+      <p class="where">Омск, Советский округ · ул. Примерная, 12</p>
+      <a class="phone-big" href="tel:+79000000000">+7 900 000-00-00</a>
+      <div class="actions">
+        <a class="btn btn-call" href="tel:+79000000000">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>
+          Позвонить
+        </a>
+        <!-- Маршрут в Яндекс Картах до точки (широта,долгота). ЗАМЕНИТЬ координаты -->
+        <a class="btn btn-route" href="https://yandex.ru/maps/?rtext=~54.9885,73.3242&amp;rtt=auto" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>
+          Маршрут
+        </a>
+      </div>
+      <!-- Только правда: то, что клиент подтвердил -->
+      <ul class="chips">
+        <li>★ 4,8 на Яндекс Картах</li>
+        <li>Осмотр бесплатно</li>
+        <li>Пн–Сб 9:00–20:00</li>
+      </ul>
     </div>
-    <h1>Гараж 55</h1>
-    <p class="what">Кузовной ремонт и покраска легковых авто</p>
-    <p class="where">Омск, Советский округ · ул. Примерная, 12</p>
-    <a class="phone-big" href="tel:+79000000000">+7 900 000-00-00</a>
-    <div class="actions">
-      <a class="btn btn-call" href="tel:+79000000000">
-        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>
-        Позвонить
-      </a>
-      <!-- Маршрут в Яндекс Картах до точки (широта,долгота). ЗАМЕНИТЬ координаты -->
-      <a class="btn btn-route" href="https://yandex.ru/maps/?rtext=~54.9885,73.3242&amp;rtt=auto" target="_blank" rel="noopener">
-        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>
-        Маршрут
-      </a>
-    </div>
+    <!-- ЗАМЕНИТЬ на фото сервиса или машины после ремонта: img/hero.jpg, 1040×600 -->
+    <div class="hero-art"><img src="img/hero-car.svg" width="520" height="300" alt="Автомобиль после покраски"></div>
   </div>
 </header>
 
 <main class="wrap">
 
   <section id="prices">
-    <h2>Услуги и цены</h2>
+    <p class="eyebrow">Цены</p>
+    <h2>Услуги и стоимость</h2>
     <!-- Только цены, которые клиент подтвердил. Нет цены — «уточняйте по телефону», не придумывать -->
-    <ul class="prices card">
-      <li><span>Удаление вмятин без покраски</span><span class="price">от 2 500 ₽</span></li>
-      <li><span>Покраска одной детали</span><span class="price">от 7 000 ₽</span></li>
-      <li><span>Полировка кузова</span><span class="price">от 6 000 ₽</span></li>
-      <li><span>Ремонт бампера</span><span class="price">от 4 000 ₽</span></li>
-      <li><span>Восстановление после ДТП</span><span class="ask">уточняйте по телефону</span></li>
-      <li><span>Ремонт по страховке (ОСАГО, КАСКО)</span><span class="ask">уточняйте по телефону</span></li>
+    <ul class="services">
+      <li class="card"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4l6 6-9 9H5v-6z"/><path d="M12 6l6 6"/></svg></span>
+        <span class="name">Удаление вмятин без покраски</span><span class="price">от 2 500 ₽</span></li>
+      <li class="card"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11h11a2 2 0 0 1 2 2v1H4z"/><path d="M17 12h3v3"/><path d="M8 14v6"/><path d="M6 4h6v7H6z"/></svg></span>
+        <span class="name">Покраска одной детали</span><span class="price">от 7 000 ₽</span></li>
+      <li class="card"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg></span>
+        <span class="name">Полировка кузова</span><span class="price">от 6 000 ₽</span></li>
+      <li class="card"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="9" rx="3"/><path d="M8 13h8"/></svg></span>
+        <span class="name">Ремонт бампера</span><span class="price">от 4 000 ₽</span></li>
+      <li class="card"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 16l1.5-5A2 2 0 0 1 8.4 9.5h7.2a2 2 0 0 1 1.9 1.5L19 16"/><rect x="3" y="16" width="18" height="3" rx="1.5"/><path d="M12 3v3M9 4l1 2M15 4l-1 2"/></svg></span>
+        <span class="name">Восстановление после ДТП</span><span class="ask">уточняйте<br>по телефону</span></li>
+      <li class="card"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg></span>
+        <span class="name">Ремонт по страховке (ОСАГО, КАСКО)</span><span class="ask">уточняйте<br>по телефону</span></li>
     </ul>
     <p class="note">Точная цена — после осмотра, осмотр бесплатный.</p>
   </section>
 
+  <section id="works">
+    <p class="eyebrow">Примеры</p>
+    <h2>Наши работы</h2>
+    <!-- ЗАМЕНИТЬ на настоящие фото работ клиента (лучше «до/после»): img/work-1.jpg … 800×600 -->
+    <ul class="works">
+      <li class="card"><img src="img/work-paint.svg" width="400" height="300" loading="lazy" alt="Покраска двери"><div class="cap"><b>Покраска двери</b><span>Kia Rio · 2 дня</span></div></li>
+      <li class="card"><img src="img/work-dent.svg" width="400" height="300" loading="lazy" alt="Удаление вмятины на крыле"><div class="cap"><b>Вмятина на крыле</b><span>Toyota Camry · без покраски</span></div></li>
+      <li class="card"><img src="img/work-polish.svg" width="400" height="300" loading="lazy" alt="Полировка кузова"><div class="cap"><b>Полировка кузова</b><span>Lada Vesta · 1 день</span></div></li>
+      <li class="card"><img src="img/work-bumper.svg" width="400" height="300" loading="lazy" alt="Ремонт бампера"><div class="cap"><b>Ремонт бампера</b><span>Hyundai Solaris · 1 день</span></div></li>
+    </ul>
+    <p class="swipe">← листайте →</p>
+  </section>
+
   <div class="grid2">
     <section id="praise">
+      <p class="eyebrow">Отзывы</p>
       <h2>За что хвалят</h2>
       <!-- 3 пункта, взятые из настоящих отзывов клиента (Яндекс Карты, 2ГИС). Своими словами, без выдумок -->
       <ul class="praise">
@@ -197,7 +278,8 @@
     </section>
 
     <section id="rating">
-      <h2>Рейтинг и отзывы</h2>
+      <p class="eyebrow">Рейтинг</p>
+      <h2>Что пишут клиенты</h2>
       <div class="card rating">
         <!-- Рейтинг, число отзывов и ссылка — точно как в источнике на дату обновления -->
         <div class="score">
@@ -212,12 +294,13 @@
   </div>
 
   <section id="place">
+    <p class="eyebrow">Контакты</p>
     <h2>Как нас найти</h2>
     <div class="card place">
       <dl>
-        <dt>Адрес</dt><dd>Омск, ул. Примерная, 12, въезд со двора</dd>
-        <dt>Часы</dt><dd>Пн–Сб 9:00–20:00, Вс — выходной</dd>
-        <dt>Телефон</dt><dd><a href="tel:+79000000000">+7 900 000-00-00</a></dd>
+        <div><dt>Адрес</dt><dd>Омск, ул. Примерная, 12, въезд со двора</dd></div>
+        <div><dt>Часы работы</dt><dd>Пн–Сб 9:00–20:00<br>Вс — выходной</dd></div>
+        <div><dt>Телефон</dt><dd><a href="tel:+79000000000">+7 900 000-00-00</a></dd></div>
       </dl>
       <!-- Карта Яндекса: ll и pt — ДОЛГОТА,ШИРОТА (наоборот, чем в ссылке «Маршрут»). ЗАМЕНИТЬ -->
       <iframe class="map" title="Карта: Гараж 55" loading="lazy"
@@ -226,9 +309,11 @@
   </section>
 
   <section class="final">
-    <h2>Посмотрим машину бесплатно</h2>
-    <p>Позвоните — подскажем цену и время, когда можно подъехать.</p>
-    <a class="btn btn-call" href="tel:+79000000000">Позвонить +7 900 000-00-00</a>
+    <div class="final-box">
+      <h2>Посмотрим машину бесплатно</h2>
+      <p>Позвоните — подскажем цену и время, когда можно подъехать.</p>
+      <a class="btn btn-call" href="tel:+79000000000">Позвонить +7 900 000-00-00</a>
+    </div>
   </section>
 </main>
 
