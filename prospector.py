@@ -531,7 +531,7 @@ def cmd_audit(args):
             sites.append(line.strip())
     print(f"Сайтов к проверке: {len(sites)}", file=sys.stderr)
 
-    me = json.loads(Path(args.sender).read_text(encoding="utf-8")) if Path(args.sender).exists() else None
+    me = json.loads(Path(args.sender).read_text(encoding="utf-8-sig")) if Path(args.sender).exists() else None
     fetcher = Fetcher(args.user_agent, respect_robots=not args.ignore_robots)
     psi_key = os.environ.get("PSI_API_KEY")
 

@@ -2,3 +2,6 @@ out/
 sender.json
 do_not_contact.txt
 __pycache__/
+.venv/
+token.txt
+bot_state.json
