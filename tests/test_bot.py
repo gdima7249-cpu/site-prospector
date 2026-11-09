@@ -1,4 +1,4 @@
-"""Тесты бота: OpenStreetMap и Telegram подменены, сайты — на локальном сервере."""
+"""Тесты бота: источники подменены, сайты — на локальном сервере."""
 import os
 import sys
 import tempfile
@@ -12,14 +12,8 @@ os.environ["NO_PROXY"] = os.environ["no_proxy"] = "127.0.0.1,localhost"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bot  # noqa: E402
-from test_prospector import H, PAGES  # noqa: E402
-
-
-def resp(data):
-    r = mock.Mock(status_code=200)
-    r.json.return_value = data
-    r.raise_for_status.return_value = None
-    return r
+import leads  # noqa: E402
+from test_prospector import H  # noqa: E402
 
 
 class BotTests(unittest.TestCase):
@@ -49,147 +43,109 @@ class BotTests(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.patch_state = mock.patch.object(bot, "STATE", Path(self.tmp.name) / "state.json")
-        self.patch_state.start()
+        d = Path(self.tmp.name)
+        self.patches = [mock.patch.object(bot, "STATE", d / "state.json"),
+                        mock.patch.object(leads, "CUSTOM_NICHES_FILE", d / "custom.json"),
+                        mock.patch.object(bot, "HERE", d)]
+        for x in self.patches:
+            x.start()
+        self.b = bot.Bot("TOKEN")
+        self.said, self.files = [], []
+        self.b.say = lambda chat, text: self.said.append(text)
+        self.b.send_file = lambda chat, name, content, caption="": self.files.append((name, content))
 
     def tearDown(self):
-        self.patch_state.stop()
+        for x in self.patches:
+            x.stop()
         self.tmp.cleanup()
 
-    def test_parse_request(self):
-        self.assertEqual(bot.parse_request("Стоматология  Казань"), ("стоматология", "Казань"))
-        self.assertEqual(bot.parse_request("салон красоты Нижний Новгород"), ("салон красоты", "Нижний Новгород"))
-        self.assertEqual(bot.parse_request("стоматолог Москва"), ("стоматология", "Москва"))
-        self.assertIsNone(bot.parse_request("привет"))
-        self.assertIsNone(bot.parse_request("стоматология"))
+    def businesses(self):
+        nb = leads.new_business
+        return [nb(name="Ромашка", site=self.old, email="boss@romashka.ru", sources=["OSM"]),
+                nb(name="Хорошая", site=self.good, phone="+7 900 111 11 11", sources=["OSM"]),
+                nb(name="Гараж Петровича", phone="+7 (913) 222-33-44", reviews=70, rating=4.8, sources=["2ГИС"]),
+                nb(name="Без контактов", sources=["OSM"])]
 
-    def test_overpass_query(self):
-        q = bot.overpass_query([("amenity", "dentist")], (55.6, 48.8, 55.9, 49.4))
-        self.assertIn('nwr["amenity"="dentist"]["website"](55.60000,48.80000,55.90000,49.40000);', q)
-        self.assertIn('["contact:website"]', q)
-        self.assertTrue(q.startswith("[out:json]") and q.endswith("out tags;"))
+    def run_search(self, niche="кузовной ремонт", city="Омск"):
+        with mock.patch.object(leads, "find_businesses", return_value=(self.businesses(), ["OpenStreetMap: 3", "2ГИС: 1"])):
+            self.b.busy.acquire()
+            self.b.search(1, niche, city)
 
-    def osm(self):
-        nominatim = resp([{"boundingbox": ["55.6", "55.9", "48.8", "49.4"]}])
-        overpass = resp({"elements": [
-            {"tags": {"name": "Ромашка", "website": self.old, "email": "boss@romashka.ru"}},
-            {"tags": {"name": "Хорошая", "contact:website": self.good}},
-            {"tags": {"name": "Ромашка", "website": self.old}},  # дубль той же организации
-            {"tags": {"name": "Авито", "website": "https://www.avito.ru/x"}},
-            {"tags": {"name": "Без сайта"}},
-        ]})
-        return mock.patch.multiple(bot.requests, get=mock.Mock(return_value=nominatim),
-                                   post=mock.Mock(return_value=overpass))
-
-    def test_find_businesses(self):
-        with self.osm():
-            found = bot.find_businesses("стоматология", "Казань")
-            get_kw = bot.requests.get.call_args.kwargs
-        self.assertEqual([b["name"] for b in found], ["Ромашка", "Хорошая"])  # дубль, Avito и без сайта отброшены
-        self.assertEqual(found[0]["email"], "boss@romashka.ru")
-        self.assertEqual(get_kw["params"]["q"], "Казань")
-        self.assertIn("User-Agent", get_kw["headers"])
-
-    def test_state_and_portal_filtered(self):
-        nominatim = resp([{"boundingbox": ["55.6", "55.9", "48.8", "49.4"]}])
-        overpass = resp({"elements": [
-            {"tags": {"name": "Детская стоматологическая поликлиника № 6", "website": "https://zdrav.tatar.ru/kzn/dsp6"}},
-            {"tags": {"name": "ГАУЗ Стоматология № 9", "website": "https://stom9.ru"}},
-            {"tags": {"name": "Улыбка", "operator:type": "public", "website": "https://ulybka-gos.ru"}},
-            {"tags": {"name": "Частная клиника", "website": "https://portal.ru/clinics/42"}},
-            {"tags": {"name": "Сеть А, филиал 1", "website": "https://set-a.ru"}},
-            {"tags": {"name": "Сеть А, филиал 2", "website": "https://set-a.ru/"}},
-            {"tags": {"name": "Зубок", "website": "http://zyb-ok.ru/"}},
-            {"tags": {"name": "Тари", "website": "taristom.ru/index.php"}},
-        ]})
-        with mock.patch.object(bot.requests, "get", return_value=nominatim), \
-                mock.patch.object(bot.requests, "post", return_value=overpass):
-            found = bot.find_businesses("стоматология", "Казань")
-        self.assertEqual([b["domain"] for b in found], ["zyb-ok.ru", "taristom.ru"])
-
-    def test_city_not_found(self):
-        with mock.patch.object(bot.requests, "get", return_value=resp([])), self.assertRaises(LookupError):
-            bot.find_businesses("стоматология", "Нигдеград")
-
-    def test_overpass_mirror_fallback(self):
-        nominatim = resp([{"boundingbox": ["55.6", "55.9", "48.8", "49.4"]}])
-        busy = mock.Mock(status_code=504, text="timeout")
-        good = resp({"elements": [{"tags": {"name": "А", "website": "https://a-dent.ru"}}]})
-        with mock.patch.object(bot.requests, "get", return_value=nominatim), \
-                mock.patch.object(bot.requests, "post", side_effect=[busy, good]) as post:
-            found = bot.find_businesses("стоматология", "Казань")
-        self.assertEqual([b["domain"] for b in found], ["a-dent.ru"])
-        self.assertEqual(post.call_args_list[1].args[0], bot.OVERPASS_URLS[1])
-
-    def test_map_errors_are_specific(self):
-        nominatim = resp([{"boundingbox": ["55.6", "55.9", "48.8", "49.4"]}])
-        fails = [mock.Mock(status_code=429, text=""), bot.requests.ConnectionError(), mock.Mock(status_code=504, text="")]
-        with mock.patch.object(bot.requests, "get", return_value=nominatim), \
-                mock.patch.object(bot.requests, "post", side_effect=fails), self.assertRaises(bot.MapError) as cm:
-            bot.find_businesses("стоматология", "Казань")
-        msg = str(cm.exception)
-        self.assertIn("overpass-api.de: HTTP 429 — слишком много запросов", msg)
-        self.assertIn("overpass.kumi.systems: ConnectionError", msg)
-        self.assertIn("HTTP 504", msg)
-
-        denied = mock.Mock(status_code=403, text="blocked")
-        with mock.patch.object(bot.requests, "get", return_value=denied) as get, \
-                mock.patch.object(bot.time, "sleep"), self.assertRaises(bot.MapError) as cm:
-            bot.find_city("Казань")
-        self.assertEqual(get.call_count, 2)  # одна повторная попытка
-        self.assertIn("поиск города (nominatim.openstreetmap.org): HTTP 403 — доступ запрещён", str(cm.exception))
-        self.assertIn("github.com", get.call_args.kwargs["headers"]["User-Agent"])
-
-    def test_map_error_reaches_user(self):
-        b = bot.Bot("TOKEN")
-        said = []
-        b.say = lambda chat, text: said.append(text)
-        with mock.patch.object(bot, "find_businesses", side_effect=bot.MapError("поиск города: HTTP 403")):
-            b.busy.acquire()
-            b.search(1, "кафе", "Казань")
-        self.assertIn("HTTP 403", said[-1])
-        self.assertFalse(b.busy.locked())
+    def test_owner_only(self):
+        self.b.handle(1, 42, "/start")
+        self.assertEqual(self.b.st["owner"], 42)
+        self.b.handle(1, 99, "/help")
+        self.assertEqual(len(self.said), 1)
 
     def test_search_flow(self):
-        b = bot.Bot("TOKEN")
-        said, files = [], []
-        b.say = lambda chat, text: said.append(text)
-        b.send_file = lambda chat, name, content, caption="": files.append((name, content))
-        with self.osm():
-            b.handle(1, 42, "/start")
-            self.assertEqual(b.st["owner"], 42)
-            b.handle(1, 99, "стоматология Казань")  # чужой — тишина
-            self.assertEqual(len(said), 1)
-            b.busy.acquire()
-            b.search(1, "стоматология", "Казань")
-        report = said[-1]
+        self.b.handle(1, 42, "/start")
+        self.run_search()
+        report = self.said[-1]
+        # компания без сайта, но с отзывами и телефоном — первая
+        first = report.split("\n\n")[1]
+        self.assertIn("Гараж Петровича", first)
+        self.assertIn("нет сайта", first)
+        self.assertIn("💰 сайт-визитка", first)
         self.assertIn("Ромашка", report)
-        self.assertIn("boss@romashka.ru", report)
-        self.assertNotIn("Хорошая", report)  # у хорошего сайта оценка ниже порога
-        self.assertEqual(files[0][0], "стоматология-Казань.csv")
-        self.assertIn("Ромашка".encode(), files[0][1])
+        self.assertIn("нет мобильной версии", report)
+        self.assertNotIn("Хорошая", report)       # хороший сайт ниже порога
+        self.assertNotIn("Без контактов", report)  # отсеяна
+        self.assertIn("pricing.json", report)
+        name, content = self.files[0]
+        self.assertEqual(name, "кузовной_ремонт-Омск.csv")
+        self.assertIn("Гараж Петровича".encode(), content)
+        self.assertIn("рекомендация".encode(), content)
 
-        said.clear()
-        b.handle(1, 42, "/draft 127.0.0.1")
-        self.assertIn("Кому: boss@romashka.ru", said[-1])
-        self.assertIn("больше писать не буду", said[-1])
+        self.said.clear()
+        self.b.handle(1, 42, "/draft 1")
+        self.assertIn("сайта у вас нет", self.said[-1])
+        self.assertIn("+7 (913) 222-33-44", self.said[-1])
+        num = next(i for i, L in enumerate(self.b.st["last"], 1) if L["b"]["name"] == "Ромашка")
+        self.b.handle(1, 42, f"/draft {num}")
+        self.assertIn("Кому: boss@romashka.ru", self.said[-1])
+        self.b.handle(1, 42, "/draft 99")
+        self.assertIn("Укажите номер", self.said[-1])
 
-        # повторный поиск не показывает уже проверенные сайты
-        said.clear()
-        with self.osm():
-            b.busy.acquire()
-            b.search(1, "стоматология", "Казань")
-        self.assertIn("новых: 0", said[-1])
+        self.b.handle(1, 42, "/skip 1")
+        self.assertIn("tel:9132223344", self.b.st["skip"])
+        # повторный поиск: всё уже видели
+        self.said.clear()
+        self.run_search()
+        self.assertIn("Новых компаний не нашёл", self.said[-1])
 
-    def test_skip_and_busy(self):
-        b = bot.Bot("TOKEN")
-        said = []
-        b.say = lambda chat, text: said.append(text)
-        b.handle(1, 42, "/skip https://www.romashka.ru/")
-        self.assertIn("romashka.ru", b.st["skip"])
-        b.busy.acquire()
-        b.handle(1, 42, "кафе Казань")
-        self.assertIn("подождите", said[-1])
+    def test_niche_commands(self):
+        self.b.handle(1, 42, "/niches")
+        self.assertIn("стоматология", self.said[-1])
+        self.b.handle(1, 42, "/addniche Натяжные потолки люкс: потолк, натяжн | high")
+        self.assertIn("Добавил нишу «натяжные потолки люкс»", self.said[-1])
+        self.assertEqual(leads.load_niches()["натяжные потолки люкс"]["keywords"], ["потолк", "натяжн"])
+        self.b.handle(1, 42, "/addniche плохо")
+        self.assertIn("Формат", self.said[-1])
+        with mock.patch.object(threading, "Thread") as th:
+            self.b.handle(1, 42, "натяжные потолки люкс Казань")
+        self.assertEqual(th.call_args.kwargs["args"], (1, "натяжные потолки люкс", "Казань"))
+
+    def test_sources_command(self):
+        with mock.patch.object(leads, "api_keys", return_value={"yandex": "", "2gis": "K"}):
+            self.b.handle(1, 42, "/sources")
+        self.assertIn("2ГИС — подключён", self.said[-1])
+        self.assertIn("Яндекс — нет ключа", self.said[-1])
+
+    def test_map_error_reaches_user(self):
+        with mock.patch.object(leads, "find_businesses", side_effect=leads.MapError("OpenStreetMap: HTTP 403")):
+            self.b.busy.acquire()
+            self.b.search(1, "кафе", "Казань")
+        self.assertIn("HTTP 403", self.said[-1])
+        self.assertFalse(self.b.busy.locked())
+
+    def test_busy(self):
+        self.b.busy.acquire()
+        self.b.handle(1, 42, "кафе Казань")
+        self.assertIn("подождите", self.said[-1])
+
+    def test_old_state_format(self):
+        bot.STATE.write_text('{"owner": 1, "offset": 5, "seen": [], "skip": [], "last": {"a.ru": {}}}', encoding="utf-8")
+        self.assertEqual(bot.load_state()["last"], [])
 
     def test_long_message_split(self):
         b = bot.Bot("TOKEN")
@@ -199,7 +155,7 @@ class BotTests(unittest.TestCase):
         self.assertTrue(len(sent) >= 3 and all(len(t) <= 4096 for t in sent))
         self.assertEqual(sum(t.count("x") for t in sent), 10000)
         sent.clear()
-        b.say(1, "y" * 9000)  # без абзацев — режем по 4000
+        b.say(1, "y" * 9000)
         self.assertEqual([len(t) for t in sent], [4000, 4000, 1000])
 
 

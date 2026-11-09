@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
-"""Telegram-бот: «стоматология Казань» → проверенные сайты компаний и черновики писем.
+"""Telegram-бот: «стоматология Казань» → компании без сайта или со слабым сайтом, приоритет, цена, черновик письма.
 
-Где берутся сайты: OpenStreetMap (открытая карта, ключи не нужны). Город ищется через Nominatim,
-организации нужной ниши с указанным сайтом — через Overpass API. Затем каждый сайт проверяется
-тем же аудитом, что и в prospector.py.
+Источники компаний — в leads.py: OpenStreetMap (бесплатно, всегда), Яндекс и 2ГИС (если есть ключи в keys.json).
+Сайты проверяются аудитом из prospector.py. Бот ничего никому не отправляет: письма вы отправляете сами.
 
-Бот ничего никому не отправляет: он присылает вам черновики, а письма вы отправляете сами.
-
-Запуск: положите токен от @BotFather в файл token.txt рядом со скриптом (или в переменную
-TELEGRAM_BOT_TOKEN) и запустите `python bot.py` (на Windows — start.bat).
+Запуск: токен от @BotFather — в token.txt (или TELEGRAM_BOT_TOKEN), затем `python bot.py` (на Windows — start.bat).
 """
 from __future__ import annotations
 
@@ -16,220 +12,59 @@ import csv
 import io
 import json
 import os
-import re
 import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict
 from pathlib import Path
-from urllib.parse import urlparse
 
 import requests
-from dataclasses import asdict
 
+import leads
 import prospector as p
 
 HERE = Path(__file__).resolve().parent
 STATE = HERE / "bot_state.json"
-# правила OpenStreetMap требуют, чтобы программа представлялась и давала ссылку на себя
-UA = "site-prospector-bot/1.1 (+https://github.com/gdima7249-cpu/site-prospector)"
-NOMINATIM = "https://nominatim.openstreetmap.org/search"
-# основной сервер Overpass и общедоступные зеркала: если один перегружен, пробуем следующий
-OVERPASS_URLS = [
-    "https://overpass-api.de/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter",
-    "https://overpass.private.coffee/api/interpreter",
-]
-MAX_SITES = 40   # сколько сайтов проверять за один поиск
-SHOW_TOP = 10    # сколько худших показывать
+MAX_SITES = 40      # сколько сайтов проверять за один поиск
+MAX_LEADS = 150     # сколько компаний рассматривать за один поиск
+SHOW_TOP = 10       # сколько показывать в сообщении
+MIN_SCORE = 35      # ниже этого приоритета компания не показывается (но есть в отчёте)
 
-# ниша → теги OpenStreetMap
-NICHES: dict[str, list[tuple[str, str]]] = {
-    "стоматология": [("amenity", "dentist")],
-    "клиника": [("amenity", "clinic"), ("amenity", "doctors")],
-    "ветеринар": [("amenity", "veterinary")],
-    "автосервис": [("shop", "car_repair")],
-    "автомойка": [("amenity", "car_wash")],
-    "шиномонтаж": [("shop", "tyres")],
-    "салон красоты": [("shop", "beauty"), ("shop", "hairdresser")],
-    "парикмахерская": [("shop", "hairdresser")],
-    "фитнес": [("leisure", "fitness_centre")],
-    "юрист": [("office", "lawyer")],
-    "нотариус": [("office", "notary")],
-    "бухгалтер": [("office", "accountant")],
-    "недвижимость": [("office", "estate_agent")],
-    "строители": [("craft", "builder")],
-    "сантехник": [("craft", "plumber")],
-    "электрик": [("craft", "electrician")],
-    "окна": [("craft", "window_construction")],
-    "мебель": [("shop", "furniture")],
-    "цветы": [("shop", "florist")],
-    "кафе": [("amenity", "cafe")],
-    "ресторан": [("amenity", "restaurant")],
-    "гостиница": [("tourism", "hotel"), ("tourism", "guest_house")],
-    "турагентство": [("shop", "travel_agency")],
-    "автошкола": [("amenity", "driving_school")],
-    "языковая школа": [("amenity", "language_school")],
-    "оптика": [("shop", "optician")],
-    "ювелир": [("shop", "jewelry")],
-    "зоомагазин": [("shop", "pet")],
-}
-ALIASES = {
-    "стоматолог": "стоматология", "зубной": "стоматология", "медцентр": "клиника", "медицинский": "клиника",
-    "ветклиника": "ветеринар", "сто": "автосервис", "автомастерская": "автосервис", "барбершоп": "парикмахерская",
-    "красоты": "салон красоты", "спортзал": "фитнес", "адвокат": "юрист", "ремонт": "строители",
-    "отель": "гостиница", "хостел": "гостиница", "кофейня": "кафе", "окна пвх": "окна",
-}
+HELP = """Напишите нишу и город, например:
+стоматология Казань
+кузовной ремонт Омск
 
-HELP = ("Напишите нишу и город, например:\n"
-        "стоматология Казань\nавтосервис Нижний Новгород\n\n"
-        "Ниши: " + ", ".join(NICHES) + "\n\n"
-        "Команды:\n/draft домен — черновик письма для сайта из последнего поиска\n"
-        "/skip домен — больше не показывать этот сайт\n/help — эта справка")
+Бот найдёт компании без сайта и со слабым сайтом, расставит приоритет и подскажет, сколько брать.
+
+Команды:
+/draft 3 — черновик письма для компании №3 из последнего поиска
+/skip 3 — больше не показывать компанию №3
+/niches — список ниш
+/addniche натяжные потолки: потолк, натяжн — своя ниша (слова — части названий компаний)
+/addniche ... | high — то же, с высоким чеком (low / mid / high)
+/sources — какие источники подключены
+/help — эта справка"""
 
 
 # ───────────────────────────── состояние ─────────────────────────────
 def load_state() -> dict:
     try:
-        return json.loads(STATE.read_text(encoding="utf-8"))
+        st = json.loads(STATE.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return {"owner": None, "offset": 0, "seen": [], "skip": [], "last": {}}
+        st = {}
+    for k, v in {"owner": None, "offset": 0, "seen": [], "skip": [], "last": []}.items():
+        st.setdefault(k, v)
+    if isinstance(st["last"], dict):  # формат старой версии
+        st["last"] = []
+    return st
 
 
 def save_state(st: dict):
     STATE.write_text(json.dumps(st, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
-# ───────────────────────────── разбор запроса ─────────────────────────────
-def parse_request(text: str) -> tuple[str, str] | None:
-    """«Стоматология  Казань» → ("стоматология", "Казань"). Ниша — самое длинное совпадение в начале."""
-    t = " ".join(text.split())
-    low = t.lower()
-    names = sorted(list(NICHES) + list(ALIASES), key=len, reverse=True)
-    for n in names:
-        if low.startswith(n + " "):
-            city = t[len(n):].strip()
-            return ALIASES.get(n, n), city
-    return None
-
-
-# ───────────────────────────── OpenStreetMap ─────────────────────────────
-# государственные и муниципальные учреждения: заказывать сайт у частника они не будут
-STATE_RE = re.compile(r"\b(ГБУЗ|ГАУЗ|ГБУ|ГАУ|МБУ|МАУ|МБОУ|МБДОУ|МАДОУ|ФГБУ|ФГБОУ|ФГУП|ГУП|МУП|ГКБ|ГУЗ|МУЗ|ОГБУЗ|КГБУЗ|ГБУЗС)\b"
-                      r"|поликлиник|больниц|государствен|муниципальн|республиканск|министерств|управлени[ея] здравоохран",
-                      re.I)
-STATE_OPERATORS = {"public", "government", "community"}
-ROOT_PATHS = {"", "index.html", "index.htm", "index.php", "ru", "main", "home"}
-
-
-def is_state(tags: dict) -> bool:
-    text = " ".join(tags.get(k, "") for k in ("name", "official_name", "operator", "operator:ru"))
-    return tags.get("operator:type", "") in STATE_OPERATORS or bool(STATE_RE.search(text))
-
-
-def is_portal_page(site: str) -> bool:
-    """Сайт указан как страница внутри чужого портала (zdrav.tatar.ru/kzn/dsp6), а не свой домен."""
-    path = urlparse(site if "://" in site else "http://" + site).path.strip("/").lower()
-    return path not in ROOT_PATHS
-
-class MapError(RuntimeError):
-    """Сервис карты не ответил. Текст — для пользователя: какой сервис и что вернул."""
-
-
-def _describe(r: requests.Response) -> str:
-    hint = {403: "доступ запрещён", 429: "слишком много запросов", 400: "не понял запрос",
-            502: "сервер перегружен", 503: "сервер перегружен", 504: "сервер не успел ответить"}.get(r.status_code, "")
-    return f"HTTP {r.status_code}" + (f" — {hint}" if hint else "")
-
-
-def find_city(city: str) -> tuple[float, float, float, float] | None:
-    """Границы города (юг, запад, север, восток) через Nominatim."""
-    params = {"q": city, "format": "json", "limit": 1, "accept-language": "ru", "countrycodes": "ru,by,kz,ua"}
-    r = None
-    for attempt in range(2):
-        try:
-            r = requests.get(NOMINATIM, params=params, headers={"User-Agent": UA}, timeout=30)
-        except requests.RequestException as e:
-            err = type(e).__name__
-        else:
-            if r.status_code == 200:
-                break
-            err = _describe(r)
-            print(f"Nominatim: {err}: {r.text[:300]!r}")
-        if attempt == 0:
-            time.sleep(2)
-    else:
-        raise MapError(f"поиск города (nominatim.openstreetmap.org): {err}")
-    data = r.json()
-    if not data:
-        return None
-    s, n, w, e = map(float, data[0]["boundingbox"])
-    return s, w, n, e
-
-
-def overpass_query(tags: list[tuple[str, str]], bbox: tuple[float, float, float, float]) -> str:
-    box = ",".join(f"{x:.5f}" for x in bbox)
-    parts = []
-    for k, v in tags:
-        for site_key in ("website", "contact:website", "url"):
-            parts.append(f'  nwr["{k}"="{v}"]["{site_key}"]({box});')
-    return "[out:json][timeout:90];\n(\n" + "\n".join(parts) + "\n);\nout tags;"
-
-
-def find_businesses(niche: str, city: str) -> list[dict]:
-    bbox = find_city(city)
-    if bbox is None:
-        raise LookupError(f"Не нашёл город «{city}»")
-    query = overpass_query(NICHES[niche], bbox)
-    errors = []
-    for url in OVERPASS_URLS:
-        host = urlparse(url).hostname
-        try:
-            r = requests.post(url, data={"data": query}, headers={"User-Agent": UA}, timeout=120)
-        except requests.RequestException as e:
-            errors.append(f"{host}: {type(e).__name__}")
-            continue
-        if r.status_code == 200:
-            try:
-                elements = r.json().get("elements", [])
-                break
-            except ValueError:
-                errors.append(f"{host}: ответ не в JSON")
-                print(f"Overpass {host}: не JSON: {r.text[:300]!r}")
-                continue
-        errors.append(f"{host}: {_describe(r)}")
-        print(f"Overpass {host}: {_describe(r)}: {r.text[:300]!r}")
-    else:
-        raise MapError("поиск компаний (Overpass): " + "; ".join(errors))
-    def site_of(tags):
-        return tags.get("website") or tags.get("contact:website") or tags.get("url") or ""
-
-    # домен, указанный у нескольких разных организаций, — это портал или сеть, а не сайт одного владельца
-    owners: dict[str, set] = {}
-    for el in elements:
-        tags = el.get("tags", {})
-        d = p.normalize(site_of(tags))
-        if d:
-            owners.setdefault(d, set()).add(tags.get("name", "").strip().lower())
-
-    found, seen = [], set()
-    for el in elements:
-        tags = el.get("tags", {})
-        site = site_of(tags)
-        domain = p.normalize(site)
-        if not domain or domain in seen or p.root_domain_skipped(domain, p.SKIP_DOMAINS):
-            continue
-        if is_state(tags) or is_portal_page(site) or len(owners[domain]) > 1 \
-                or domain.startswith(("zdrav.", "minzdrav.")) or ".gov." in domain:
-            continue
-        seen.add(domain)
-        found.append({"name": tags.get("name", ""), "site": site, "domain": domain,
-                      "email": tags.get("email") or tags.get("contact:email") or "",
-                      "phone": tags.get("phone") or tags.get("contact:phone") or ""})
-    return found
-
-
-# ───────────────────────────── аудит и вывод ─────────────────────────────
+# ───────────────────────────── проверка и оценка ─────────────────────────────
 def sender_info() -> dict:
     path = HERE / "sender.json"
     if path.exists():
@@ -239,7 +74,9 @@ def sender_info() -> dict:
             "signature": "[подпись: имя, телефон, Telegram]"}
 
 
-def audit_many(businesses: list[dict]) -> list[tuple[dict, p.Audit]]:
+def audit_sites(businesses: list[dict]) -> dict[str, p.Audit]:
+    """Проверяет сайты (до MAX_SITES), возвращает аудит по домену."""
+    with_site = [b for b in businesses if b["site"]][:MAX_SITES]
     fetcher = p.Fetcher(p.DEFAULT_UA)
 
     def one(b):
@@ -247,37 +84,86 @@ def audit_many(businesses: list[dict]) -> list[tuple[dict, p.Audit]]:
             a = p.audit_site(b["site"], fetcher, check_links=10, psi=False, psi_key=None)
         except Exception as e:  # noqa: BLE001 — один сайт не должен ронять поиск
             a = p.Audit(input=b["site"], domain=b["domain"], error=type(e).__name__)
-        if b["email"] and b["email"].lower() not in a.emails:
-            a.emails.insert(0, b["email"].lower())
-        return b, a
+        return b["domain"], a
 
     with ThreadPoolExecutor(max_workers=6) as pool:
-        return list(pool.map(one, businesses))
+        return dict(pool.map(one, with_site))
 
 
-def format_site(i: int, b: dict, a: p.Audit) -> str:
-    lines = [f"{i}. {b['name'] or a.domain} — {a.domain}", f"   оценка {a.score}/100"]
-    for t in p.top_issues(a, 3):
-        lines.append(f"   • {t}")
-    contact = ", ".join(a.emails[:2]) or (f"тел. {b['phone']}" if b["phone"] else "контактов не нашёл")
-    lines.append(f"   ✉ {contact}")
+def build_leads(businesses: list[dict], audits: dict[str, p.Audit], tier: str, city: str) -> list[dict]:
+    pricing = leads.load_pricing()
+    out = []
+    for b in businesses:
+        a = audits.get(b["domain"]) if b["domain"] else None
+        if b["site"] and a is None:
+            continue  # сайт есть, но не проверяли (сверх лимита) — оценивать вслепую не будем
+        if a and a.emails and not b["email"]:
+            b = dict(b, email=a.emails[0])
+        score, reasons, kind = leads.lead_score(b, a, tier)
+        if kind == "unknown":
+            continue
+        out.append({"b": b, "a": asdict(a) if a else None, "score": score, "reasons": reasons, "kind": kind,
+                    "price": leads.price_hint(b, a, kind, tier, city, pricing)})
+    out.sort(key=lambda x: -x["score"])
+    return out
+
+
+KIND_ICON = {"no_site": "🚫 нет сайта", "dead_site": "💀 сайт не работает", "site": "🌐"}
+
+
+def format_lead(i: int, L: dict) -> str:
+    b = L["b"]
+    head = f"{i}. {b['name']}"
+    head += f" — {b['domain']}" if b["domain"] else ""
+    if L["kind"] != "site":
+        head += f" · {KIND_ICON[L['kind']]}"
+    lines = [head, f"   приоритет {L['score']}/100: {', '.join(L['reasons']) or 'мелкие недочёты'}",
+             f"   💰 {L['price']}"]
+    contacts = []
+    if b["email"]:
+        contacts.append(b["email"])
+    if b["phone"]:
+        contacts.append("тел. " + b["phone"].split(";")[0].strip())
+    lines.append("   ✉ " + (", ".join(contacts) or "контактов не нашёл"))
+    if b.get("rating") is not None:
+        lines.append(f"   ★ {b['rating']} · {b.get('reviews') or 0} отзывов ({', '.join(b['sources'])})")
     return "\n".join(lines)
 
 
-def csv_bytes(rows: list[tuple[dict, p.Audit]]) -> bytes:
+def csv_bytes(rows: list[dict]) -> bytes:
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
-    w.writerow(["компания", "домен", "оценка", "email", "телефон", "проблемы", "ошибка"])
-    for b, a in rows:
-        w.writerow([b["name"], a.domain, a.score, ", ".join(a.emails[:3]), b["phone"],
-                    " | ".join(p.issue_text(k, v) for k, v in a.issues.items()), a.error])
+    w.writerow(["№", "компания", "сайт", "статус", "приоритет", "почему", "рекомендация", "email", "телефон",
+                "адрес", "рейтинг", "отзывов", "источники"])
+    status = {"no_site": "нет сайта", "dead_site": "не работает", "site": "есть"}
+    for i, L in enumerate(rows, 1):
+        b = L["b"]
+        w.writerow([i, b["name"], b["domain"], status[L["kind"]], L["score"], ", ".join(L["reasons"]), L["price"],
+                    b["email"], b["phone"], b["address"], b.get("rating") or "", b.get("reviews") or "",
+                    ", ".join(b["sources"])])
     return buf.getvalue().encode("utf-8-sig")
 
 
-def draft_text(a: p.Audit) -> str:
-    subject, body = p.template_draft(a, sender_info())
-    to = a.emails[0] if a.emails else "(email не найден — ищите на сайте или звоните)"
-    return f"Кому: {to}\nТема: {subject}\n\n{body}"
+def draft_text(L: dict) -> str:
+    me = sender_info()
+    b = L["b"]
+    if L["kind"] == "site":
+        a = p.Audit(**L["a"])
+        subject, body = p.template_draft(a, me)
+        to = b["email"] or (a.emails[0] if a.emails else "(email не найден — ищите на сайте или звоните)")
+        return f"Кому: {to}\nТема: {subject}\n\n{body}"
+    who = f"Меня зовут {me['name']}{', ' + me['company'] if me.get('company') else ''}, я делаю сайты."
+    if L["kind"] == "no_site":
+        problem = (f"Нашёл «{b['name']}» на карте, но сайта у вас нет. Когда человек ищет услугу с телефона, "
+                   "он чаще звонит тем, у кого можно сразу посмотреть цены, адрес и отзывы.")
+        offer = ("Могу сделать простой сайт: что вы делаете, цены «от», адрес с картой и кнопка «Позвонить». "
+                 "Покажу, как это будет выглядеть, бесплатно.")
+    else:
+        problem = f"У «{b['name']}» указан сайт {b['domain']}, но он сейчас не открывается — клиенты, которые его ищут, видят ошибку."
+        offer = "Могу восстановить его или сделать новый простой сайт с ценами, адресом и кнопкой звонка."
+    to = b["email"] or (f"нет email — напишите в WhatsApp/Telegram или позвоните: {b['phone']}" if b["phone"] else "контактов нет")
+    return (f"Кому: {to}\nТема: Сайт для «{b['name']}»\n\nЗдравствуйте!\n\n{who} {problem}\n\n{offer}\n\n"
+            f"Если не актуально — просто ответьте «нет», больше писать не буду.\n\n{me['signature']}")
 
 
 # ───────────────────────────── Telegram ─────────────────────────────
@@ -330,6 +216,14 @@ class Bot:
                     except Exception as e:  # noqa: BLE001
                         print(f"Ошибка обработки: {e!r}")
 
+    def lead_by_arg(self, arg: str) -> dict | None:
+        arg = arg.strip()
+        if arg.isdigit():
+            i = int(arg) - 1
+            return self.st["last"][i] if 0 <= i < len(self.st["last"]) else None
+        d = p.normalize(arg) if arg else None
+        return next((L for L in self.st["last"] if d and L["b"]["domain"] == d), None)
+
     def handle(self, chat: int, user: int, text: str):
         if self.st["owner"] is None:  # первый, кто написал, становится владельцем; остальным бот не отвечает
             self.st["owner"] = user
@@ -339,57 +233,77 @@ class Bot:
         cmd, _, arg = text.partition(" ")
         if cmd in ("/start", "/help"):
             return self.say(chat, HELP)
-        if cmd == "/draft":
-            d = p.normalize(arg) if arg else None
-            a = self.st["last"].get(d) if d else None
-            if not a:
-                return self.say(chat, "Укажите домен из последнего поиска: /draft romashka.ru")
-            return self.say(chat, draft_text(p.Audit(**a)))
-        if cmd == "/skip":
-            d = p.normalize(arg) if arg else None
-            if not d:
-                return self.say(chat, "Например: /skip romashka.ru")
-            self.st["skip"].append(d)
+        if cmd == "/niches":
+            niches = leads.load_niches()
+            by_tier = {"high": [], "mid": [], "low": []}
+            for name, d in niches.items():
+                by_tier.get(d.get("tier", "mid"), by_tier["mid"]).append(name)
+            return self.say(chat, "Высокий чек: " + ", ".join(by_tier["high"]) + "\n\nСредний: " + ", ".join(by_tier["mid"])
+                            + "\n\nНебольшой: " + ", ".join(by_tier["low"]) + "\n\nСвоя ниша: /addniche название: слово1, слово2")
+        if cmd == "/addniche":
+            body, _, tier = arg.partition("|")
+            name, _, words = body.partition(":")
+            kws = [w.strip() for w in words.split(",") if len(w.strip()) >= 3]
+            if not name.strip() or not kws:
+                return self.say(chat, "Формат: /addniche натяжные потолки: потолк, натяжн | high\n"
+                                      "Слова — части названий компаний (не короче 3 букв). Чек (low/mid/high) — по желанию.")
+            e = leads.add_custom_niche(name.strip(), kws, tier.strip() or "mid")
+            return self.say(chat, f"Добавил нишу «{name.strip().lower()}»: ищу компании, в названии которых есть "
+                                  f"{', '.join(kws)}. Чек: {e['tier']}.\nПример: {name.strip().lower()} Казань")
+        if cmd == "/sources":
+            keys = leads.api_keys()
+            return self.say(chat, "OpenStreetMap — подключён (бесплатно)\n"
+                                  f"Яндекс — {'подключён' if keys['yandex'] else 'нет ключа (keys.json → yandex_org_api_key)'}\n"
+                                  f"2ГИС — {'подключён' if keys['2gis'] else 'нет ключа (keys.json → dgis_api_key)'}")
+        if cmd in ("/draft", "/skip"):
+            L = self.lead_by_arg(arg)
+            if not L:
+                return self.say(chat, f"Укажите номер или домен из последнего поиска, например: {cmd} 3")
+            if cmd == "/draft":
+                return self.say(chat, draft_text(L))
+            self.st["skip"].append(leads.business_key(L["b"]))
             save_state(self.st)
-            return self.say(chat, f"{d} больше не покажу.")
-        req = parse_request(text)
+            return self.say(chat, f"«{L['b']['name']}» больше не покажу.")
+        req = leads.parse_request(text, leads.load_niches())
         if not req:
-            return self.say(chat, "Не понял нишу.\n\n" + HELP)
+            return self.say(chat, "Не понял нишу. Список: /niches, своя: /addniche\n\n" + HELP)
         if not self.busy.acquire(blocking=False):
             return self.say(chat, "Ещё ищу по прошлому запросу, подождите.")
         threading.Thread(target=self.search, args=(chat, *req), daemon=True).start()
 
-    def search(self, chat: int, niche: str, city: str):
+    def search(self, chat: int, niche_name: str, city: str):
         try:
-            self.say(chat, f"Ищу «{niche}» в городе {city}…")
+            niche = leads.load_niches()[niche_name]
+            self.say(chat, f"Ищу «{niche_name}» в городе {city}…")
             try:
-                found = find_businesses(niche, city)
+                found, notes = leads.find_businesses(niche_name, niche, city)
             except LookupError as e:
                 return self.say(chat, str(e))
-            except MapError as e:
-                return self.say(chat, f"Карта OpenStreetMap не ответила.\n{e}\n\nПопробуйте через пару минут. "
-                                      "Если повторится — пришлите мне этот текст.")
+            except leads.MapError as e:
+                return self.say(chat, f"Источники не ответили.\n{e}\n\nПопробуйте через пару минут.")
             skip = set(self.st["skip"]) | set(self.st["seen"]) | p.load_suppression(HERE / "do_not_contact.txt")
-            fresh = [b for b in found if b["domain"] not in skip][:MAX_SITES]
+            fresh = [b for b in found if leads.keep(b, skip)][:MAX_LEADS]
             if not fresh:
-                return self.say(chat, f"Сайтов не нашёл (всего в карте с сайтом: {len(found)}, новых: 0). "
-                                      "Попробуйте другую нишу или город побольше.")
-            self.say(chat, f"Нашёл {len(found)} компаний с сайтом, проверяю {len(fresh)}. Это займёт пару минут.")
-            rows = audit_many(fresh)
-            ok = sorted([r for r in rows if r[1].ok], key=lambda r: -r[1].score)
-            self.st["seen"] += [b["domain"] for b, _ in rows]
-            self.st["last"] = {a.domain: asdict(a) for _, a in ok}
+                return self.say(chat, f"Новых компаний не нашёл ({'; '.join(notes)}). Попробуйте другую нишу или город.")
+            n_site = sum(1 for b in fresh if b["site"])
+            self.say(chat, f"Нашёл {len(fresh)} новых компаний ({'; '.join(notes)}): {n_site} с сайтом, "
+                           f"{len(fresh) - n_site} без. Проверяю сайты, это пара минут.")
+            audits = audit_sites(fresh)
+            rows = build_leads(fresh, audits, niche.get("tier", "mid"), city)
+            self.st["seen"] += [leads.business_key(L["b"]) for L in rows]
+            top = [L for L in rows if L["score"] >= MIN_SCORE][:SHOW_TOP]
+            self.st["last"] = rows
             save_state(self.st)
-            bad = [r for r in ok if r[1].score >= 30][:SHOW_TOP]
-            if not bad:
-                self.say(chat, f"Проверил {len(ok)} сайтов — явно слабых нет. Попробуйте другую нишу.")
+            if not top:
+                self.say(chat, f"Оценил {len(rows)} компаний — подходящих мало. Полный список в файле.")
             else:
-                text = f"Самые слабые сайты ({len(bad)} из {len(ok)} проверенных):\n\n"
-                text += "\n\n".join(format_site(i, b, a) for i, (b, a) in enumerate(bad, 1))
-                text += "\n\nЧерновик письма: /draft домен\nНе показывать больше: /skip домен"
+                text = f"Лучшие кандидаты ({len(top)} из {len(rows)}), по приоритету:\n\n"
+                text += "\n\n".join(format_lead(i, L) for i, L in enumerate(top, 1))
+                text += ("\n\nЦены — ориентир по правилам из pricing.json, решение за вами."
+                         "\nЧерновик: /draft номер · не показывать: /skip номер")
                 self.say(chat, text)
-            self.send_file(chat, f"{niche}-{city}.csv".replace(" ", "_"), csv_bytes(ok + [r for r in rows if not r[1].ok]),
-                           "Полный отчёт (открывается в Excel)")
+            self.send_file(chat, f"{niche_name}-{city}.csv".replace(" ", "_"), csv_bytes(rows),
+                           "Все компании с приоритетом и рекомендацией (открывается в Excel)")
         except Exception as e:  # noqa: BLE001
             print(f"Ошибка поиска: {e!r}")
             self.say(chat, f"Что-то сломалось: {type(e).__name__}. Подробности — в окне, где запущен бот.")

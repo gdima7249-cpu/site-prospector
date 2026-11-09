@@ -1,0 +1,658 @@
+{
+ "_comment": "Ниши по умолчанию. Свои ниши добавляйте командой /addniche в боте — они хранятся в niches_custom.json. osm — теги OpenStreetMap, keywords — части слов в названии компании, tier — чек: high/mid/low, aliases — другие названия ниши.",
+ "стоматология": {
+  "osm": [
+   "amenity=dentist"
+  ],
+  "keywords": [
+   "стоматолог",
+   "дентал"
+  ],
+  "tier": "high",
+  "aliases": [
+   "стоматолог",
+   "зубной"
+  ]
+ },
+ "клиника": {
+  "osm": [
+   "amenity=clinic",
+   "amenity=doctors"
+  ],
+  "keywords": [
+   "клиник",
+   "медцентр",
+   "медицинский центр"
+  ],
+  "tier": "high",
+  "aliases": [
+   "медцентр"
+  ]
+ },
+ "косметология": {
+  "osm": [],
+  "keywords": [
+   "космет",
+   "эстетическ"
+  ],
+  "tier": "high",
+  "aliases": [
+   "косметолог"
+  ]
+ },
+ "юрист": {
+  "osm": [
+   "office=lawyer"
+  ],
+  "keywords": [
+   "юрист",
+   "юридическ",
+   "адвокат"
+  ],
+  "tier": "high",
+  "aliases": [
+   "адвокат",
+   "юристы"
+  ]
+ },
+ "недвижимость": {
+  "osm": [
+   "office=estate_agent"
+  ],
+  "keywords": [
+   "недвижимост",
+   "риелт",
+   "риэлт"
+  ],
+  "tier": "high",
+  "aliases": [
+   "агентство недвижимости",
+   "риелтор"
+  ]
+ },
+ "ремонт квартир": {
+  "osm": [
+   "craft=builder"
+  ],
+  "keywords": [
+   "ремонт квартир",
+   "отделк"
+  ],
+  "tier": "high",
+  "aliases": [
+   "ремонт",
+   "строители"
+  ]
+ },
+ "окна": {
+  "osm": [
+   "craft=window_construction"
+  ],
+  "keywords": [
+   "окна",
+   "окон",
+   "пвх"
+  ],
+  "tier": "high",
+  "aliases": [
+   "окна пвх"
+  ]
+ },
+ "двери": {
+  "osm": [],
+  "keywords": [
+   "двер"
+  ],
+  "tier": "high",
+  "aliases": []
+ },
+ "натяжные потолки": {
+  "osm": [],
+  "keywords": [
+   "потолк"
+  ],
+  "tier": "high",
+  "aliases": [
+   "потолки"
+  ]
+ },
+ "мебель на заказ": {
+  "osm": [
+   "shop=furniture",
+   "craft=carpenter"
+  ],
+  "keywords": [
+   "мебел",
+   "кухни"
+  ],
+  "tier": "high",
+  "aliases": [
+   "мебель",
+   "кухни"
+  ]
+ },
+ "кузовной ремонт": {
+  "osm": [],
+  "keywords": [
+   "кузов",
+   "покраск"
+  ],
+  "tier": "high",
+  "aliases": [
+   "покраска авто"
+  ]
+ },
+ "автостёкла": {
+  "osm": [],
+  "keywords": [
+   "автостекл",
+   "автостёкл"
+  ],
+  "tier": "mid",
+  "aliases": [
+   "автостекла"
+  ]
+ },
+ "бани и дома": {
+  "osm": [],
+  "keywords": [
+   "срубы",
+   "бани",
+   "домокомплект",
+   "каркасн"
+  ],
+  "tier": "high",
+  "aliases": [
+   "строительство домов"
+  ]
+ },
+ "ветеринар": {
+  "osm": [
+   "amenity=veterinary"
+  ],
+  "keywords": [
+   "ветеринар",
+   "ветклиник"
+  ],
+  "tier": "high",
+  "aliases": [
+   "ветклиника"
+  ]
+ },
+ "психолог": {
+  "osm": [
+   "healthcare=psychotherapist"
+  ],
+  "keywords": [
+   "психолог",
+   "психотерап"
+  ],
+  "tier": "mid",
+  "aliases": []
+ },
+ "автосервис": {
+  "osm": [
+   "shop=car_repair"
+  ],
+  "keywords": [
+   "автосервис",
+   "автотехцентр",
+   "автомастерск"
+  ],
+  "tier": "mid",
+  "aliases": [
+   "сто",
+   "автомастерская"
+  ]
+ },
+ "автоэлектрик": {
+  "osm": [],
+  "keywords": [
+   "автоэлектрик"
+  ],
+  "tier": "mid",
+  "aliases": []
+ },
+ "шиномонтаж": {
+  "osm": [
+   "shop=tyres"
+  ],
+  "keywords": [
+   "шиномонтаж"
+  ],
+  "tier": "low",
+  "aliases": []
+ },
+ "автомойка": {
+  "osm": [
+   "amenity=car_wash"
+  ],
+  "keywords": [
+   "автомойк",
+   "мойка"
+  ],
+  "tier": "low",
+  "aliases": []
+ },
+ "автошкола": {
+  "osm": [
+   "amenity=driving_school"
+  ],
+  "keywords": [
+   "автошкол"
+  ],
+  "tier": "mid",
+  "aliases": []
+ },
+ "эвакуатор": {
+  "osm": [],
+  "keywords": [
+   "эвакуатор"
+  ],
+  "tier": "mid",
+  "aliases": []
+ },
+ "грузоперевозки": {
+  "osm": [],
+  "keywords": [
+   "грузоперевоз",
+   "переезд",
+   "грузчик"
+  ],
+  "tier": "mid",
+  "aliases": [
+   "переезды"
+  ]
+ },
+ "салон красоты": {
+  "osm": [
+   "shop=beauty"
+  ],
+  "keywords": [
+   "салон красоты",
+   "beauty"
+  ],
+  "tier": "mid",
+  "aliases": [
+   "красоты"
+  ]
+ },
+ "парикмахерская": {
+  "osm": [
+   "shop=hairdresser"
+  ],
+  "keywords": [
+   "парикмахер",
+   "барбер"
+  ],
+  "tier": "low",
+  "aliases": [
+   "барбершоп"
+  ]
+ },
+ "массаж": {
+  "osm": [
+   "shop=massage"
+  ],
+  "keywords": [
+   "массаж"
+  ],
+  "tier": "mid",
+  "aliases": []
+ },
+ "тату": {
+  "osm": [
+   "shop=tattoo"
+  ],
+  "keywords": [
+   "тату",
+   "tattoo"
+  ],
+  "tier": "mid",
+  "aliases": []
+ },
+ "фитнес": {
+  "osm": [
+   "leisure=fitness_centre"
+  ],
+  "keywords": [
+   "фитнес",
+   "тренажер"
+  ],
+  "tier": "mid",
+  "aliases": [
+   "спортзал"
+  ]
+ },
+ "танцы": {
+  "osm": [
+   "leisure=dance"
+  ],
+  "keywords": [
+   "танц"
+  ],
+  "tier": "mid",
+  "aliases": [
+   "школа танцев"
+  ]
+ },
+ "детский центр": {
+  "osm": [],
+  "keywords": [
+   "детский центр",
+   "развити",
+   "детский клуб"
+  ],
+  "tier": "mid",
+  "aliases": []
+ },
+ "языковая школа": {
+  "osm": [
+   "amenity=language_school"
+  ],
+  "keywords": [
+   "английск",
+   "языков"
+  ],
+  "tier": "mid",
+  "aliases": [
+   "курсы английского"
+  ]
+ },
+ "музыкальная школа": {
+  "osm": [
+   "amenity=music_school"
+  ],
+  "keywords": [
+   "музыкальн",
+   "вокал"
+  ],
+  "tier": "mid",
+  "aliases": []
+ },
+ "бухгалтер": {
+  "osm": [
+   "office=accountant"
+  ],
+  "keywords": [
+   "бухгалтер"
+  ],
+  "tier": "mid",
+  "aliases": [
+   "бухгалтерия"
+  ]
+ },
+ "нотариус": {
+  "osm": [
+   "office=notary"
+  ],
+  "keywords": [
+   "нотариус"
+  ],
+  "tier": "mid",
+  "aliases": []
+ },
+ "страхование": {
+  "osm": [
+   "office=insurance"
+  ],
+  "keywords": [
+   "страхов"
+  ],
+  "tier": "mid",
+  "aliases": []
+ },
+ "гостиница": {
+  "osm": [
+   "tourism=hotel",
+   "tourism=guest_house",
+   "tourism=hostel"
+  ],
+  "keywords": [
+   "гостиниц",
+   "отель",
+   "хостел"
+  ],
+  "tier": "mid",
+  "aliases": [
+   "отель",
+   "хостел"
+  ]
+ },
+ "баня и сауна": {
+  "osm": [
+   "leisure=sauna"
+  ],
+  "keywords": [
+   "сауна",
+   "баня"
+  ],
+  "tier": "mid",
+  "aliases": [
+   "сауна"
+  ]
+ },
+ "турагентство": {
+  "osm": [
+   "shop=travel_agency"
+  ],
+  "keywords": [
+   "турагент",
+   "туроператор",
+   "путешеств"
+  ],
+  "tier": "mid",
+  "aliases": []
+ },
+ "оптика": {
+  "osm": [
+   "shop=optician"
+  ],
+  "keywords": [
+   "оптик"
+  ],
+  "tier": "mid",
+  "aliases": []
+ },
+ "ювелир": {
+  "osm": [
+   "shop=jewelry"
+  ],
+  "keywords": [
+   "ювелир"
+  ],
+  "tier": "mid",
+  "aliases": []
+ },
+ "фотостудия": {
+  "osm": [
+   "shop=photo",
+   "craft=photographer"
+  ],
+  "keywords": [
+   "фотостуди",
+   "фотограф"
+  ],
+  "tier": "mid",
+  "aliases": [
+   "фотограф"
+  ]
+ },
+ "типография": {
+  "osm": [
+   "shop=copyshop",
+   "craft=printer"
+  ],
+  "keywords": [
+   "типограф",
+   "печать"
+  ],
+  "tier": "mid",
+  "aliases": []
+ },
+ "клининг": {
+  "osm": [],
+  "keywords": [
+   "клининг",
+   "уборк"
+  ],
+  "tier": "mid",
+  "aliases": [
+   "уборка"
+  ]
+ },
+ "ремонт техники": {
+  "osm": [
+   "craft=electronics_repair"
+  ],
+  "keywords": [
+   "ремонт техники",
+   "ремонт телефон",
+   "сервисный центр"
+  ],
+  "tier": "low",
+  "aliases": [
+   "ремонт телефонов"
+  ]
+ },
+ "ателье": {
+  "osm": [
+   "shop=tailor",
+   "craft=tailor"
+  ],
+  "keywords": [
+   "ателье",
+   "пошив"
+  ],
+  "tier": "low",
+  "aliases": []
+ },
+ "химчистка": {
+  "osm": [
+   "shop=dry_cleaning"
+  ],
+  "keywords": [
+   "химчистк"
+  ],
+  "tier": "low",
+  "aliases": []
+ },
+ "ремонт обуви": {
+  "osm": [
+   "shop=shoe_repair",
+   "craft=shoemaker"
+  ],
+  "keywords": [
+   "ремонт обуви"
+  ],
+  "tier": "low",
+  "aliases": []
+ },
+ "стройматериалы": {
+  "osm": [
+   "shop=doityourself",
+   "shop=hardware"
+  ],
+  "keywords": [
+   "стройматериал"
+  ],
+  "tier": "mid",
+  "aliases": []
+ },
+ "автозапчасти": {
+  "osm": [
+   "shop=car_parts"
+  ],
+  "keywords": [
+   "автозапчаст",
+   "запчаст"
+  ],
+  "tier": "mid",
+  "aliases": [
+   "запчасти"
+  ]
+ },
+ "цветы": {
+  "osm": [
+   "shop=florist"
+  ],
+  "keywords": [
+   "цветы",
+   "цветочн",
+   "флорист"
+  ],
+  "tier": "low",
+  "aliases": [
+   "цветочный"
+  ]
+ },
+ "кафе": {
+  "osm": [
+   "amenity=cafe"
+  ],
+  "keywords": [
+   "кафе",
+   "кофейн"
+  ],
+  "tier": "low",
+  "aliases": [
+   "кофейня"
+  ]
+ },
+ "ресторан": {
+  "osm": [
+   "amenity=restaurant"
+  ],
+  "keywords": [
+   "ресторан"
+  ],
+  "tier": "mid",
+  "aliases": []
+ },
+ "пекарня": {
+  "osm": [
+   "shop=bakery"
+  ],
+  "keywords": [
+   "пекарн"
+  ],
+  "tier": "low",
+  "aliases": []
+ },
+ "кондитерская": {
+  "osm": [
+   "shop=confectionery"
+  ],
+  "keywords": [
+   "кондитер",
+   "торты"
+  ],
+  "tier": "low",
+  "aliases": [
+   "торты"
+  ]
+ },
+ "зоомагазин": {
+  "osm": [
+   "shop=pet"
+  ],
+  "keywords": [
+   "зоомагазин",
+   "зоотовар"
+  ],
+  "tier": "low",
+  "aliases": []
+ },
+ "ритуальные услуги": {
+  "osm": [
+   "shop=funeral_directors"
+  ],
+  "keywords": [
+   "ритуальн"
+  ],
+  "tier": "mid",
+  "aliases": [
+   "ритуальные"
+  ]
+ }
+}

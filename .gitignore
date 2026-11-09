@@ -5,3 +5,5 @@ __pycache__/
 .venv/
 token.txt
 bot_state.json
+keys.json
+niches_custom.json
