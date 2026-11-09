@@ -67,10 +67,39 @@ class Niches(unittest.TestCase):
         self.assertIn('nwr["amenity"="dentist"](54.80000,73.10000,55.10000,73.60000);', q)
         self.assertIn('nwr["shop"]["name"~"[Сс]томат|[Дд]ентал"]', q)
         self.assertTrue(q.endswith("out tags 400;"))
+        self.assertNotIn('"amenity"]["name"', q)  # тяжёлый поиск по словам — только в shop/office/craft
         self.assertNotIn("website", q)  # теперь ищем и компании без сайта
 
 
 class Sources(unittest.TestCase):
+    def setUp(self):
+        leads._OSM_CACHE.clear()
+
+    def test_light_query_after_overload_and_cache(self):
+        busy = mock.Mock(status_code=504, text="")
+        good = resp({"elements": [{"tags": {"name": "Кузовной цех", "phone": "+7 900 123 45 67"}}]})
+        niche = {"osm": [], "keywords": ["кузов"]}
+        with mock.patch.object(leads.requests, "get", return_value=NOMINATIM), \
+                mock.patch.object(leads.time, "sleep") as sleep, \
+                mock.patch.object(leads.requests, "post", side_effect=[busy, busy, busy, good]) as post:
+            found = leads.osm_search(niche, "Омск")
+            self.assertEqual([b["name"] for b in found], ["Кузовной цех"])
+            self.assertEqual(post.call_count, 4)
+            self.assertIn("timeout:40", post.call_args.kwargs["data"]["data"])  # четвёртый — облегчённый
+            sleep.assert_called_once_with(5)
+            again = leads.osm_search(niche, "омск ")  # из кэша: серверы не трогаем
+            self.assertEqual(post.call_count, 4)
+            self.assertEqual(again, found)
+
+    def test_overload_message(self):
+        busy = mock.Mock(status_code=504, text="")
+        with mock.patch.object(leads.requests, "get", return_value=NOMINATIM), mock.patch.object(leads.time, "sleep"), \
+                mock.patch.object(leads.requests, "post", return_value=busy), self.assertRaises(leads.MapError) as cm:
+            leads.osm_search({"osm": ["amenity=dentist"], "keywords": []}, "Омск")
+        msg = str(cm.exception)
+        self.assertIn("перегружен", msg)
+        self.assertEqual(msg.count("overpass-api.de"), 1)  # одинаковые ошибки не повторяются
+
     def test_osm_search(self):
         overpass = resp({"elements": [
             {"tags": {"name": "Зубок", "website": "http://zyb-ok.ru/", "email": "Zyb@mail.ru"}},

@@ -187,43 +187,65 @@ def _ci(word: str) -> str:
     return f"[{word[0].upper()}{word[0]}]{word[1:]}" if word and word[0].isalpha() else word
 
 
-def overpass_query(niche: dict, bbox: tuple[float, float, float, float], limit: int = 400) -> str:
+def overpass_query(niche: dict, bbox: tuple[float, float, float, float], limit: int = 400, light: bool = False) -> str:
+    """Запрос к Overpass. Поиск по словам в названии — самая тяжёлая часть, поэтому только в shop/office/craft.
+    light=True — облегчённый запрос на случай перегрузки: только теги ниши (или слова только в shop/craft)."""
     box = ",".join(f"{x:.5f}" for x in bbox)
     parts = []
     for tag in niche.get("osm", []):
         k, _, v = tag.partition("=")
         parts.append(f'  nwr["{k}"="{v}"]({box});')
-    if niche.get("keywords"):
-        rx = "|".join(_ci(w) for w in niche["keywords"])
-        for k in ("shop", "office", "craft", "amenity", "leisure", "healthcare"):
+    kw = niche.get("keywords") or []
+    if kw and (not light or not parts):
+        rx = "|".join(_ci(w) for w in kw)
+        for k in (("shop", "craft") if light else ("shop", "office", "craft")):
             parts.append(f'  nwr["{k}"]["name"~"{rx}"]({box});')
-    return f"[out:json][timeout:90];\n(\n" + "\n".join(parts) + f"\n);\nout tags {limit};"
+    timeout = 40 if light else 60
+    return f"[out:json][timeout:{timeout}];\n(\n" + "\n".join(parts) + f"\n);\nout tags {200 if light else limit};"
+
+
+_OSM_CACHE: dict[tuple, tuple[float, list]] = {}
+OSM_CACHE_TTL = 6 * 3600  # повторный поиск того же в течение 6 часов не нагружает серверы
+
+
+def _overpass(query: str, errors: list[str]) -> list | None:
+    for url in OVERPASS_URLS:
+        host = urlparse(url).hostname
+        try:
+            r = requests.post(url, data={"data": query}, headers={"User-Agent": UA}, timeout=75)
+        except requests.RequestException as e:
+            errors.append(f"{host}: {type(e).__name__}")
+            continue
+        if r.status_code == 200:
+            try:
+                return r.json().get("elements", [])
+            except ValueError:
+                errors.append(f"{host}: ответ не в JSON")
+                continue
+        errors.append(f"{host}: {_describe(r)}")
+        print(f"Overpass {host}: {_describe(r)}: {r.text[:300]!r}")
+    return None
 
 
 def osm_search(niche: dict, city: str) -> list[dict]:
     bbox = find_city(city)
     if bbox is None:
         raise LookupError(f"Не нашёл город «{city}»")
-    query = overpass_query(niche, bbox)
-    errors = []
-    for url in OVERPASS_URLS:
-        host = urlparse(url).hostname
-        try:
-            r = requests.post(url, data={"data": query}, headers={"User-Agent": UA}, timeout=120)
-        except requests.RequestException as e:
-            errors.append(f"{host}: {type(e).__name__}")
-            continue
-        if r.status_code == 200:
-            try:
-                elements = r.json().get("elements", [])
-                break
-            except ValueError:
-                errors.append(f"{host}: ответ не в JSON")
-                continue
-        errors.append(f"{host}: {_describe(r)}")
-        print(f"Overpass {host}: {_describe(r)}: {r.text[:300]!r}")
-    else:
-        raise MapError("OpenStreetMap (Overpass): " + "; ".join(errors))
+    cache_key = (json.dumps(niche, sort_keys=True, ensure_ascii=False), city.strip().lower())
+    hit = _OSM_CACHE.get(cache_key)
+    if hit and time.time() - hit[0] < OSM_CACHE_TTL:
+        return [dict(b, sources=list(b["sources"])) for b in hit[1]]
+    # сначала полный запрос по всем серверам, потом, после паузы, облегчённый
+    errors: list[str] = []
+    elements = None
+    for i, light in enumerate((False, True)):
+        if i:
+            time.sleep(5)
+        elements = _overpass(overpass_query(niche, bbox, light=light), errors)
+        if elements is not None:
+            break
+    if elements is None:
+        raise MapError("OpenStreetMap (Overpass) перегружен: " + "; ".join(dict.fromkeys(errors)))
 
     def site_of(t):
         return t.get("website") or t.get("contact:website") or t.get("url") or ""
@@ -250,6 +272,7 @@ def osm_search(niche: dict, city: str) -> list[dict]:
             name=name, site=site, email=(t.get("email") or t.get("contact:email") or "").lower(),
             phone=t.get("phone") or t.get("contact:phone") or "", address=street,
             hours=t.get("opening_hours", ""), sources=["OSM"]))
+    _OSM_CACHE[cache_key] = (time.time(), [dict(b, sources=list(b["sources"])) for b in found])
     return found
 
 

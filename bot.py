@@ -280,7 +280,11 @@ class Bot:
             except LookupError as e:
                 return self.say(chat, str(e))
             except leads.MapError as e:
-                return self.say(chat, f"Источники не ответили.\n{e}\n\nПопробуйте через пару минут.")
+                keys = leads.api_keys()
+                tip = "" if keys["2gis"] or keys["yandex"] else (
+                    "\n\nБесплатные серверы OpenStreetMap иногда перегружены. Надёжнее подключить ключ 2ГИС или Яндекса "
+                    "(см. /sources) — тогда бот будет работать и без OpenStreetMap.")
+                return self.say(chat, f"Источники не ответили.\n{e}\n\nПопробуйте через 5–10 минут.{tip}")
             skip = set(self.st["skip"]) | set(self.st["seen"]) | p.load_suppression(HERE / "do_not_contact.txt")
             fresh = [b for b in found if leads.keep(b, skip)][:MAX_LEADS]
             if not fresh:
