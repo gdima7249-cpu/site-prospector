@@ -21,6 +21,10 @@ python3 -m venv "$APP_DIR/.venv"
 "$APP_DIR/.venv/bin/pip" install -q --upgrade pip
 "$APP_DIR/.venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"
 
+echo "→ Браузер Chromium для PDF с демо (несколько сотен МБ, один раз)"
+export PLAYWRIGHT_BROWSERS_PATH="$APP_DIR/.browsers"
+"$APP_DIR/.venv/bin/python" -m playwright install --with-deps chromium >/dev/null
+
 for f in token.txt config.json; do
   if [ ! -s "$APP_DIR/$f" ]; then echo "⚠ Нет файла $f — создайте его (см. README) и перезапустите: sudo systemctl restart $SERVICE"; fi
 done
@@ -41,6 +45,7 @@ ExecStart=$APP_DIR/.venv/bin/python $APP_DIR/bot.py
 Restart=always
 RestartSec=10
 Environment=PYTHONUNBUFFERED=1
+Environment=PLAYWRIGHT_BROWSERS_PATH=$APP_DIR/.browsers
 
 [Install]
 WantedBy=multi-user.target

@@ -25,8 +25,8 @@ BOUNCE_SUBJ = re.compile(r"undeliver|delivery status|delivery failure|returned m
 QUOTE_START = re.compile(r"^(>|-{2,}|_{5,}|.*(написал|написала|wrote|пишет)\s*:?\s*$|.*<[^<>@\s]+@[^<>\s]+>\s*:\s*$|From:|От:)", re.I)
 
 
-def send(cfg: dict, to: str, subject: str, body: str) -> str:
-    """Отправляет письмо, возвращает Message-ID. cfg — раздел smtp из config.json."""
+def send(cfg: dict, to: str, subject: str, body: str, pdfs: list[tuple[str, bytes]] | None = None) -> str:
+    """Отправляет письмо, возвращает Message-ID. cfg — раздел smtp из config.json; pdfs — вложения (имя, данные)."""
     sender = cfg.get("from") or cfg["user"]
     msg = EmailMessage()
     msg["From"] = formataddr((cfg.get("from_name", ""), sender)) if cfg.get("from_name") else sender
@@ -35,6 +35,8 @@ def send(cfg: dict, to: str, subject: str, body: str) -> str:
     msg["Message-ID"] = make_msgid(domain=sender.split("@")[-1])
     msg["List-Unsubscribe"] = f"<mailto:{sender}?subject=unsubscribe>"
     msg.set_content(body)
+    for name, data in pdfs or []:
+        msg.add_attachment(data, maintype="application", subtype="pdf", filename=name)
     port = int(cfg.get("port", 465))
     ctx = ssl.create_default_context()
     if port == 465:

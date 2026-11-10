@@ -33,6 +33,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 import demo_builder
+import demo_pdf
 import leads
 import mailer
 import prospector as p
@@ -176,12 +177,21 @@ def csv_bytes(rows: list[dict]) -> bytes:
     return buf.getvalue().encode("utf-8-sig")
 
 
-def make_draft(L: dict, demo_url: str | None = None) -> dict:
+def make_draft(L: dict, demo_url: str | None = None, pdf: bool = False) -> dict:
     """Письмо: {"to", "subject", "body"}. to пустой, если email нет."""
     me = sender_info()
     b = L["b"]
-    demo_line = (f"Я сделал набросок, как мог бы выглядеть ваш сайт на телефоне: {demo_url}\n"
-                 "Данные взял из открытых источников, что-то может быть неточно.") if demo_url else ""
+    if pdf and demo_url:
+        demo_line = (f"Я сделал набросок, как мог бы выглядеть ваш сайт, — прикладываю PDF, а на телефоне его можно открыть "
+                     f"по ссылке: {demo_url}\nДанные взял из открытых источников, что-то может быть неточно.")
+    elif pdf:
+        demo_line = ("Я сделал набросок, как мог бы выглядеть ваш сайт на телефоне и на компьютере, — прикладываю PDF.\n"
+                     "Данные взял из открытых источников, что-то может быть неточно.")
+    elif demo_url:
+        demo_line = (f"Я сделал набросок, как мог бы выглядеть ваш сайт на телефоне: {demo_url}\n"
+                     "Данные взял из открытых источников, что-то может быть неточно.")
+    else:
+        demo_line = ""
     if L["kind"] == "site":
         a = p.Audit(**L["a"])
         subject, body = p.template_draft(a, me)
@@ -287,7 +297,7 @@ class Bot:
         return r.json().get("result")
 
     def run(self):
-        if self.cfg.get("demo", {}).get("port"):
+        if self.cfg.get("demo", {}).get("port") and self.demo_url:  # без public_url демо наружу не открываем
             start_demo_server(self.demo_root, int(self.cfg["demo"]["port"]))
             print(f"Демо-страницы: {self.demo_url or 'порт ' + str(self.cfg['demo']['port'])}")
         if self.cfg.get("imap"):
@@ -506,22 +516,47 @@ class Bot:
             return self.say(chat, f"Отменил. «{L['b']['name']}» не трогаю.")
 
     def demo_link(self, L: dict) -> str | None:
-        return f"{self.demo_url}/{L['demo']}/" if L.get("demo") and self.demo_url else None
+        if not (L.get("demo") and self.demo_url and self.cfg.get("demo", {}).get("link", True)):
+            return None
+        return f"{self.demo_url}/{L['demo']}/"
+
+    def pdf_path(self, L: dict) -> Path | None:
+        path = HERE / "demo_pdfs" / f"{L['demo']}.pdf" if L.get("demo") else None
+        return path if path and path.exists() else None
+
+    @staticmethod
+    def pdf_name(L: dict) -> str:
+        safe = "".join(ch for ch in L["b"]["name"] if ch.isalnum() or ch in " -_")[:40].strip().replace(" ", "-")
+        return f"Сайт-{safe or 'демо'}.pdf"
 
     def make_demo(self, chat: int, L: dict):
         niche = leads.load_niches().get(L.get("niche", ""), {})
+        demo_cfg = self.cfg.get("demo", {})
+        want_pdf = demo_cfg.get("pdf", True)
         note = ""
         if niche.get("demo"):
-            if not self.demo_url:
-                note = "Демо не собрал: в config.json не задан адрес демо-страниц (demo → public_url).\n\n"
+            if not self.demo_url and not want_pdf:
+                note = "Демо не собрал: в config.json не задан ни адрес демо-страниц (demo → public_url), ни PDF (demo → pdf).\n\n"
             elif not L.get("demo"):
+                self.say(chat, f"Собираю демо для «{L['b']['name']}»" + (" и PDF…" if want_pdf else "…"))
                 try:
                     L["demo"] = demo_builder.build_demo(L["b"], L["niche"], niche, L["city"], sender_info(), self.demo_root,
-                                                      self.cfg.get("demo", {}).get("template", "studio"))
+                                                      demo_cfg.get("template", "studio"))
                 except Exception as e:  # noqa: BLE001
                     print(f"Ошибка сборки демо: {e!r}")
-                    note = f"Демо собрать не удалось ({type(e).__name__}), письмо — без ссылки.\n\n"
-        L["draft"] = make_draft(L, self.demo_link(L))
+                    note = f"Демо собрать не удалось ({type(e).__name__}), письмо — без него.\n\n"
+            if L.get("demo") and want_pdf and not self.pdf_path(L):
+                try:
+                    demo_pdf.render_pdf(self.demo_root, L["demo"], L["b"]["name"], HERE / "demo_pdfs" / f"{L['demo']}.pdf",
+                                        demo_cfg.get("chromium_path"))
+                except Exception as e:  # noqa: BLE001
+                    print(f"Ошибка PDF: {e!r}")
+                    note += (f"PDF собрать не удалось ({type(e).__name__}). Если это ModuleNotFoundError или ошибка браузера — "
+                             "на сервере не установлен Chromium (см. README, раздел про PDF).\n\n")
+        pdf = self.pdf_path(L)
+        if pdf:
+            self.send_file(chat, self.pdf_name(L), pdf.read_bytes(), "PDF, который уйдёт клиенту вместе с письмом")
+        L["draft"] = make_draft(L, self.demo_link(L), pdf=bool(pdf))
         L["status"] = "draft"
         self.save()
         if self.cfg.get("one_click") and L["draft"]["to"]:
@@ -532,6 +567,8 @@ class Bot:
         d = L["draft"]
         link = self.demo_link(L)
         head = note + (f"🖼 Демо: {link}\nПроверьте его на телефоне перед отправкой.\n\n" if link else "")
+        if self.pdf_path(L):
+            head += "📎 К письму будет приложен PDF (он выше).\n\n"
         to = d["to"] or "нет email — скопируйте текст и отправьте в WhatsApp/Telegram: " + (L["b"]["phone"] or "контактов нет")
         text = f"{head}Кому: {to}\nТема: {d['subject']}\n\n{d['body']}"
         buttons = [("✏️ Изменить", f"edit:{L['id']}"), ("❌ Отмена", f"cancel:{L['id']}")]
@@ -582,7 +619,9 @@ class Bot:
                 self.say(chat, f"Отправлю «{L['b']['name']}» через {int(wait)} с (пауза между письмами).")
                 time.sleep(wait)
             try:
-                mailer.send(smtp, d["to"], d["subject"], d["body"])
+                pdf = self.pdf_path(L)
+                mailer.send(smtp, d["to"], d["subject"], d["body"],
+                            [(self.pdf_name(L), pdf.read_bytes())] if pdf else None)
             except Exception as e:  # noqa: BLE001
                 print(f"Ошибка отправки: {e!r}")
                 return self.say(chat, f"Письмо «{L['b']['name']}» не ушло: {type(e).__name__}: {e}",

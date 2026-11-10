@@ -1,8 +1,10 @@
+.browsers/
 .venv/
 __pycache__/
 bot_state.json
 bot_state.tmp
 config.json
+demo_pdfs/
 do_not_contact.txt
 keys.json
 niches_custom.json

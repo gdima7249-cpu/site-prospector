@@ -13,6 +13,12 @@ import demo_builder as d  # noqa: E402
 import leads  # noqa: E402
 import mailer  # noqa: E402
 
+try:
+    import playwright  # noqa: F401
+    HAVE_PLAYWRIGHT = True
+except ImportError:
+    HAVE_PLAYWRIGHT = False
+
 
 class Demo(unittest.TestCase):
     def test_hours(self):
@@ -105,6 +111,23 @@ class Demo(unittest.TestCase):
             self.assertIn("Режим уточняйте по телефону", page2)
 
 
+    @unittest.skipUnless(HAVE_PLAYWRIGHT, "нет playwright — PDF не проверить")
+    def test_render_pdf(self):
+        import demo_pdf
+        niches = leads.load_niches()
+        b = leads.new_business(name="Центр Кузовного Ремонта", phone="+7 913 977-45-07", address="ул. Заводская, 1/2",
+                               hours="Mo-Fr 09:00-18:00", rating=4.6, reviews=64, sources=["2ГИС"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "demos"
+            tok = d.build_demo(b, "кузовной ремонт", niches["кузовной ремонт"], "Омск", {"name": "Д"}, root)
+            out = demo_pdf.render_pdf(root, tok, b["name"], Path(tmp) / "pdf" / "x.pdf")
+            data = out.read_bytes()
+            self.assertTrue(data.startswith(b"%PDF"))
+            pages = data.count(b"/Type /Page") - data.count(b"/Type /Pages")
+            self.assertEqual(pages, 5)  # телефон + первый экран, услуги, рейтинг, контакты
+            self.assertLess(len(data), 3_000_000)
+
+
 def make_msg(frm, subject, body):
     m = EmailMessage()
     m["From"], m["Subject"] = frm, subject
@@ -136,6 +159,11 @@ class Mail(unittest.TestCase):
         self.assertIn("unsubscribe", msg["List-Unsubscribe"])
         self.assertIn("my.ru", mid)
         srv.quit.assert_called_once()
+        with mock.patch.object(mailer.smtplib, "SMTP_SSL") as ssl_cls:
+            mailer.send({"host": "h", "port": 465, "user": "u@x.ru", "password": "p"}, "a@b.ru", "s", "b",
+                        [("Сайт-Ромашка.pdf", b"%PDF-1.4 x")])
+        att = list(ssl_cls.return_value.send_message.call_args.args[0].iter_attachments())
+        self.assertEqual((att[0].get_filename(), att[0].get_content_type()), ("Сайт-Ромашка.pdf", "application/pdf"))
         with mock.patch.object(mailer.smtplib, "SMTP") as plain:
             mailer.send({"host": "h", "port": 587, "user": "u@x.ru", "password": "p"}, "a@b.ru", "s", "b")
         plain.return_value.starttls.assert_called_once()

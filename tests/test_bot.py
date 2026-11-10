@@ -58,10 +58,17 @@ class BotTests(unittest.TestCase):
                         mock.patch.object(bot, "HERE", self.dir),
                         mock.patch.object(leads, "CUSTOM_NICHES_FILE", self.dir / "custom.json"),
                         mock.patch.object(bot, "spawn", lambda target, *args: target(*args)),
-                        mock.patch.object(bot.time, "sleep")]
+                        mock.patch.object(bot.time, "sleep"),
+                        mock.patch.object(bot.demo_pdf, "render_pdf", side_effect=self.fake_pdf)]
         for x in self.patches:
             x.start()
         self.make_bot(json.loads(json.dumps(CONFIG)) if config is None else config)
+
+    @staticmethod
+    def fake_pdf(root, token, name, out, chromium_path=None):
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"%PDF-1.4 fake " + name.encode())
+        return out
 
     def make_bot(self, config):
         self.b = bot.Bot("TOKEN", config)
@@ -146,15 +153,41 @@ class BotTests(unittest.TestCase):
                                                   "reply_markup": '{"inline_keyboard": []}'}), self.api)
         with mock.patch.object(bot.mailer, "send") as send:
             self.press(f"send:{r['id']}")
-            to, subject, body = send.call_args.args[1:]
+            to, subject, body, pdfs = send.call_args.args[1:]
         self.assertEqual(to, "boss@romashka.ru")
         self.assertIn(r["demo"], body)
+        self.assertIn("прикладываю PDF", body)
+        self.assertEqual(pdfs[0][0], "Сайт-Ромашка.pdf")
+        self.assertTrue(pdfs[0][1].startswith(b"%PDF"))
         self.assertIn("Отправлено", self.last)
         self.assertEqual(r["status"], "sent")
         with mock.patch.object(bot.mailer, "send") as send:
             self.press(f"send:{r['id']}")
         send.assert_not_called()
         self.assertIn("уже отправлено", self.last)
+
+    def test_pdf_without_public_url(self):
+        self.b.cfg["demo"] = {"pdf": True}  # без домена: только PDF, без ссылки
+        self.b.demo_url = ""
+        self.b.handle(1, 42, "/start")
+        self.run_search()
+        r = self.lead("Ромашка")
+        self.press(f"demo:{r['id']}")
+        self.assertTrue(r.get("demo"))
+        self.assertEqual(self.files[-1][0], "Сайт-Ромашка.pdf")  # PDF пришёл в Telegram на проверку
+        self.assertIn("📎 К письму будет приложен PDF", self.last)
+        self.assertNotIn("http://", self.last)
+        self.assertIn("прикладываю PDF", r["draft"]["body"])
+
+    def test_pdf_failure_is_reported(self):
+        self.b.handle(1, 42, "/start")
+        self.run_search()
+        r = self.lead("Ромашка")
+        with mock.patch.object(bot.demo_pdf, "render_pdf", side_effect=ModuleNotFoundError("playwright")):
+            self.press(f"demo:{r['id']}")
+        self.assertIn("PDF собрать не удалось", self.last)
+        self.assertIn(f"http://1.2.3.4:8080/{r['demo']}/", r["draft"]["body"])  # ссылка остаётся
+        self.assertNotIn("PDF", r["draft"]["body"])
 
     def test_no_email_lead(self):
         self.b.handle(1, 42, "/start")
