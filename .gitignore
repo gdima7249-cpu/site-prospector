@@ -1,4 +1,6 @@
 .browsers/
+.python/
+.tools/
 .venv/
 __pycache__/
 bot_state.json
