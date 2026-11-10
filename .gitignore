@@ -1,9 +1,12 @@
-out/
-sender.json
-do_not_contact.txt
-__pycache__/
 .venv/
-token.txt
+__pycache__/
 bot_state.json
+bot_state.tmp
+config.json
+do_not_contact.txt
 keys.json
 niches_custom.json
+out/
+public_demos/
+sender.json
+token.txt

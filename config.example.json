@@ -1,0 +1,36 @@
+{
+ "_comment": "Скопируйте в config.json и заполните. Файл с паролем — только на сервере, в репозиторий не попадает.",
+ "smtp": {
+  "_comment": "Ящик для писем клиентам. Яндекс 360: smtp.yandex.ru:465, Mail.ru для бизнеса: smtp.mail.ru:465. Пароль — «пароль приложения» из настроек ящика.",
+  "host": "smtp.yandex.ru",
+  "port": 465,
+  "user": "hello@ваш-домен.ru",
+  "password": "пароль приложения",
+  "from_name": "Дмитрий"
+ },
+ "imap": {
+  "_comment": "Чтение ответов клиентов. Логин и пароль берутся из smtp. Яндекс: imap.yandex.ru, Mail.ru: imap.mail.ru.",
+  "host": "imap.yandex.ru",
+  "port": 993,
+  "every_sec": 300
+ },
+ "limits": {
+  "per_day": 20,
+  "min_delay_sec": 90,
+  "max_bounces_per_day": 3
+ },
+ "demo": {
+  "_comment": "public_url — адрес, по которому клиенты откроют демо. Лучше поддомен с HTTPS (см. README), на крайний случай http://IP-сервера:8080",
+  "public_url": "http://IP-СЕРВЕРА:8080",
+  "port": 8080,
+  "dir": "public_demos"
+ },
+ "schedule": {
+  "_comment": "Поиск по расписанию раз в день: время и часовой пояс, запросы как в боте, максимум карточек за день.",
+  "time": "10:00",
+  "tz": "Europe/Moscow",
+  "searches": ["кузовной ремонт Омск", "автосервис Новосибирск"],
+  "max_cards": 10
+ },
+ "one_click": false
+}

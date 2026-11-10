@@ -1,14 +1,22 @@
 #!/usr/bin/env python3
-"""Telegram-бот: «стоматология Казань» → компании без сайта или со слабым сайтом, приоритет, цена, черновик письма.
+"""Telegram-бот: поиск компаний без сайта или со слабым сайтом → карточка с кнопками → демо и письмо только по кнопке.
 
-Источники компаний — в leads.py: OpenStreetMap (бесплатно, всегда), Яндекс и 2ГИС (если есть ключи в keys.json).
-Сайты проверяются аудитом из prospector.py. Бот ничего никому не отправляет: письма вы отправляете сами.
+Порядок работы с кандидатом:
+  1. карточка: кто, почему, сколько брать — кнопки «✅ Сделать демо» / «❌ Пропустить»;
+  2. после «Сделать демо» бот собирает демо по эталону и присылает ссылку и текст письма —
+     кнопки «📨 Отправить» / «✏️ Изменить» / «❌ Отмена»;
+  3. «Отправить» — письмо уходит с вашего ящика (лимит в день, пауза между письмами);
+  4. ответы клиентов приходят вам в Telegram; «нет» → компания в списке «не писать»;
+     много недоставленных писем → рассылка на паузе.
 
+Источники компаний — leads.py, демо — demo_builder.py, почта — mailer.py. Настройки сервера — config.json.
 Запуск: токен от @BotFather — в token.txt (или TELEGRAM_BOT_TOKEN), затем `python bot.py` (на Windows — start.bat).
 """
 from __future__ import annotations
 
 import csv
+import functools
+import hashlib
 import io
 import json
 import os
@@ -17,51 +25,74 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
+from datetime import datetime
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
 
+import demo_builder
 import leads
+import mailer
 import prospector as p
 
 HERE = Path(__file__).resolve().parent
 STATE = HERE / "bot_state.json"
+CONFIG = HERE / "config.json"
 MAX_SITES = 40      # сколько сайтов проверять за один поиск
 MAX_LEADS = 150     # сколько компаний рассматривать за один поиск
-SHOW_TOP = 10       # сколько показывать в сообщении
+SHOW_TOP = 10       # сколько карточек присылать за один поиск
 MIN_SCORE = 35      # ниже этого приоритета компания не показывается (но есть в отчёте)
 
 HELP = """Напишите нишу и город, например:
-стоматология Казань
 кузовной ремонт Омск
+стоматология Казань
 
-Бот найдёт компании без сайта и со слабым сайтом, расставит приоритет и подскажет, сколько брать.
+Бот пришлёт карточки лучших кандидатов. Под каждой кнопки:
+✅ Сделать демо — бот соберёт демо-сайт по эталону и подготовит письмо (только автомобильные ниши)
+❌ Пропустить — больше не показывать
+Потом: 📨 Отправить / ✏️ Изменить текст / ❌ Отмена.
 
 Команды:
-/draft 3 — черновик письма для компании №3 из последнего поиска
-/skip 3 — больше не показывать компанию №3
-/niches — список ниш
-/addniche натяжные потолки: потолк, натяжн — своя ниша (слова — части названий компаний)
-/addniche ... | high — то же, с высоким чеком (low / mid / high)
+/status — сколько писем отправлено сегодня, пауза, расписание
+/pause и /resume — остановить и возобновить отправку
+/draft 3 — черновик письма для кандидата №3 из последнего поиска
+/niches — список ниш · /addniche натяжные потолки: потолк, натяжн | high — своя ниша
 /sources — какие источники подключены
 /help — эта справка"""
 
 
-# ───────────────────────────── состояние ─────────────────────────────
+# ───────────────────────────── настройки и состояние ─────────────────────────────
+def load_config() -> dict:
+    if CONFIG.exists():
+        return json.loads(CONFIG.read_text(encoding="utf-8-sig"))
+    return {}
+
+
 def load_state() -> dict:
     try:
         st = json.loads(STATE.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         st = {}
-    for k, v in {"owner": None, "offset": 0, "seen": [], "skip": [], "last": []}.items():
+    defaults = {"owner": None, "owner_chat": None, "offset": 0, "seen": [], "skip": [], "last": [], "leads": {},
+                "sent_today": {}, "bounces_today": {}, "paused": False, "pending_edit": None, "last_auto": "",
+                "mail_seen": [], "last_send_ts": 0}
+    for k, v in defaults.items():
         st.setdefault(k, v)
-    if isinstance(st["last"], dict):  # формат старой версии
+    if isinstance(st["last"], dict) or (st["last"] and isinstance(st["last"][0], dict)):  # формат старых версий
         st["last"] = []
     return st
 
 
 def save_state(st: dict):
-    STATE.write_text(json.dumps(st, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp = STATE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(st, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(STATE)
+
+
+def lead_id(b: dict) -> str:
+    return hashlib.sha1(leads.business_key(b).encode()).hexdigest()[:8]
 
 
 # ───────────────────────────── проверка и оценка ─────────────────────────────
@@ -144,53 +175,110 @@ def csv_bytes(rows: list[dict]) -> bytes:
     return buf.getvalue().encode("utf-8-sig")
 
 
-def draft_text(L: dict) -> str:
+def make_draft(L: dict, demo_url: str | None = None) -> dict:
+    """Письмо: {"to", "subject", "body"}. to пустой, если email нет."""
     me = sender_info()
     b = L["b"]
+    demo_line = (f"Я сделал набросок, как мог бы выглядеть ваш сайт на телефоне: {demo_url}\n"
+                 "Данные взял из открытых источников, что-то может быть неточно.") if demo_url else ""
     if L["kind"] == "site":
         a = p.Audit(**L["a"])
         subject, body = p.template_draft(a, me)
-        to = b["email"] or (a.emails[0] if a.emails else "(email не найден — ищите на сайте или звоните)")
-        return f"Кому: {to}\nТема: {subject}\n\n{body}"
+        if demo_line:
+            body = body.replace(me["offer"], f"{demo_line}\n\n{me['offer']}", 1)
+        to = b["email"] or (a.emails[0] if a.emails else "")
+        return {"to": to, "subject": subject, "body": body}
     who = f"Меня зовут {me['name']}{', ' + me['company'] if me.get('company') else ''}, я делаю сайты."
     if L["kind"] == "no_site":
         problem = (f"Нашёл «{b['name']}» на карте, но сайта у вас нет. Когда человек ищет услугу с телефона, "
                    "он чаще звонит тем, у кого можно сразу посмотреть цены, адрес и отзывы.")
-        offer = ("Могу сделать простой сайт: что вы делаете, цены «от», адрес с картой и кнопка «Позвонить». "
-                 "Покажу, как это будет выглядеть, бесплатно.")
+        offer = demo_line or ("Могу сделать простой сайт: что вы делаете, цены «от», адрес с картой и кнопка "
+                              "«Позвонить». Покажу, как это будет выглядеть, бесплатно.")
     else:
         problem = f"У «{b['name']}» указан сайт {b['domain']}, но он сейчас не открывается — клиенты, которые его ищут, видят ошибку."
-        offer = "Могу восстановить его или сделать новый простой сайт с ценами, адресом и кнопкой звонка."
-    to = b["email"] or (f"нет email — напишите в WhatsApp/Telegram или позвоните: {b['phone']}" if b["phone"] else "контактов нет")
-    return (f"Кому: {to}\nТема: Сайт для «{b['name']}»\n\nЗдравствуйте!\n\n{who} {problem}\n\n{offer}\n\n"
+        offer = demo_line or "Могу восстановить его или сделать новый простой сайт с ценами, адресом и кнопкой звонка."
+    body = (f"Здравствуйте!\n\n{who} {problem}\n\n{offer}\n\n"
             f"Если не актуально — просто ответьте «нет», больше писать не буду.\n\n{me['signature']}")
+    return {"to": b["email"], "subject": f"Сайт для «{b['name']}»", "body": body}
+
+
+def draft_text(L: dict, demo_url: str | None = None) -> str:
+    d = make_draft(L, demo_url)
+    b = L["b"]
+    to = d["to"] or (f"нет email — напишите в WhatsApp/Telegram или позвоните: {b['phone']}" if b["phone"] else "контактов нет")
+    return f"Кому: {to}\nТема: {d['subject']}\n\n{d['body']}"
+
+
+def spawn(target, *args):
+    """Фоновая задача (в тестах подменяется на синхронный вызов)."""
+    threading.Thread(target=target, args=args, daemon=True).start()
+
+
+def kb(*rows: list[tuple[str, str]]) -> str:
+    return json.dumps({"inline_keyboard": [[{"text": t, "callback_data": c} for t, c in row] for row in rows]},
+                      ensure_ascii=False)
+
+
+# ───────────────────────────── сервер демо-страниц ─────────────────────────────
+class DemoHandler(SimpleHTTPRequestHandler):
+    """Отдаёт демо, запрещает индексацию и не показывает список папок."""
+
+    def end_headers(self):
+        self.send_header("X-Robots-Tag", "noindex, nofollow")
+        super().end_headers()
+
+    def list_directory(self, path):
+        self.send_error(404)
+        return None
+
+    def log_message(self, *args):
+        pass
+
+
+def start_demo_server(root: Path, port: int) -> ThreadingHTTPServer:
+    root.mkdir(parents=True, exist_ok=True)
+    srv = ThreadingHTTPServer(("0.0.0.0", port), functools.partial(DemoHandler, directory=str(root)))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
 
 
 # ───────────────────────────── Telegram ─────────────────────────────
 class Bot:
-    def __init__(self, token: str):
+    def __init__(self, token: str, config: dict | None = None):
         self.api = f"https://api.telegram.org/bot{token}/"
         self.st = load_state()
+        self.cfg = config if config is not None else load_config()
         self.busy = threading.Lock()
+        self.lock = threading.RLock()
+        self.send_lock = threading.Lock()
+        demo = self.cfg.get("demo", {})
+        self.demo_root = HERE / demo.get("dir", "public_demos")
+        self.demo_url = demo.get("public_url", "").rstrip("/")
 
+    # — Telegram API —
     def call(self, method: str, timeout: int = 60, **params):
         r = requests.post(self.api + method, data=params, timeout=timeout)
         r.raise_for_status()
         return r.json().get("result")
 
-    def say(self, chat: int, text: str):
+    def say(self, chat: int, text: str, markup: str | None = None):
         while text:  # лимит Telegram — 4096 символов
             if len(text) <= 4000:
                 cut = text
             else:
                 idx = text.rfind("\n\n", 0, 4000)
                 cut = text[:idx if idx > 0 else 4000]
-            self.call("sendMessage", chat_id=chat, text=cut, disable_web_page_preview="true")
             text = text[len(cut):].lstrip()
+            extra = {"reply_markup": markup} if markup and not text else {}
+            self.call("sendMessage", chat_id=chat, text=cut, disable_web_page_preview="true", **extra)
 
     def send_file(self, chat: int, name: str, content: bytes, caption: str = ""):
         requests.post(self.api + "sendDocument", data={"chat_id": chat, "caption": caption},
                       files={"document": (name, content)}, timeout=60).raise_for_status()
+
+    def save(self):
+        with self.lock:
+            save_state(self.st)
 
     def requests_updates(self):
         r = requests.post(self.api + "getUpdates", data={"offset": self.st["offset"], "timeout": 50}, timeout=70)
@@ -198,6 +286,13 @@ class Bot:
         return r.json().get("result")
 
     def run(self):
+        if self.cfg.get("demo", {}).get("port"):
+            start_demo_server(self.demo_root, int(self.cfg["demo"]["port"]))
+            print(f"Демо-страницы: {self.demo_url or 'порт ' + str(self.cfg['demo']['port'])}")
+        if self.cfg.get("imap"):
+            threading.Thread(target=self.inbox_loop, daemon=True).start()
+        if self.cfg.get("schedule", {}).get("searches"):
+            threading.Thread(target=self.schedule_loop, daemon=True).start()
         print("Бот запущен. Напишите ему в Telegram. Остановить — Ctrl+C.")
         while True:
             try:
@@ -208,37 +303,52 @@ class Bot:
                 continue
             for u in updates or []:
                 self.st["offset"] = u["update_id"] + 1
-                save_state(self.st)
-                msg = u.get("message") or {}
-                if "text" in msg:
-                    try:
-                        self.handle(msg["chat"]["id"], msg["from"]["id"], msg["text"].strip())
-                    except Exception as e:  # noqa: BLE001
-                        print(f"Ошибка обработки: {e!r}")
+                self.save()
+                try:
+                    if "callback_query" in u:
+                        self.handle_callback(u["callback_query"])
+                    elif "text" in (u.get("message") or {}):
+                        m = u["message"]
+                        self.handle(m["chat"]["id"], m["from"]["id"], m["text"].strip())
+                except Exception as e:  # noqa: BLE001
+                    print(f"Ошибка обработки: {e!r}")
 
+    # — текстовые сообщения —
     def lead_by_arg(self, arg: str) -> dict | None:
         arg = arg.strip()
+        ids = self.st["last"]
         if arg.isdigit():
             i = int(arg) - 1
-            return self.st["last"][i] if 0 <= i < len(self.st["last"]) else None
+            return self.st["leads"].get(ids[i]) if 0 <= i < len(ids) else None
         d = p.normalize(arg) if arg else None
-        return next((L for L in self.st["last"] if d and L["b"]["domain"] == d), None)
+        return next((self.st["leads"][i] for i in ids if d and self.st["leads"][i]["b"]["domain"] == d), None)
 
     def handle(self, chat: int, user: int, text: str):
         if self.st["owner"] is None:  # первый, кто написал, становится владельцем; остальным бот не отвечает
             self.st["owner"] = user
-            save_state(self.st)
         if user != self.st["owner"]:
             return
+        self.st["owner_chat"] = chat
+        self.save()
         cmd, _, arg = text.partition(" ")
+        if self.st["pending_edit"] and not text.startswith("/"):
+            return self.apply_edit(chat, text)
         if cmd in ("/start", "/help"):
             return self.say(chat, HELP)
+        if cmd == "/status":
+            return self.say(chat, self.status_text())
+        if cmd in ("/pause", "/resume"):
+            self.st["paused"] = cmd == "/pause"
+            self.save()
+            return self.say(chat, "Отправка писем на паузе." if self.st["paused"] else "Отправка писем возобновлена.")
         if cmd == "/niches":
             niches = leads.load_niches()
             by_tier = {"high": [], "mid": [], "low": []}
             for name, d in niches.items():
-                by_tier.get(d.get("tier", "mid"), by_tier["mid"]).append(name)
-            return self.say(chat, "Высокий чек: " + ", ".join(by_tier["high"]) + "\n\nСредний: " + ", ".join(by_tier["mid"])
+                mark = " 🖼" if d.get("demo") else ""
+                by_tier.get(d.get("tier", "mid"), by_tier["mid"]).append(name + mark)
+            return self.say(chat, "🖼 — для ниши есть эталон, бот умеет делать демо.\n\nВысокий чек: "
+                            + ", ".join(by_tier["high"]) + "\n\nСредний: " + ", ".join(by_tier["mid"])
                             + "\n\nНебольшой: " + ", ".join(by_tier["low"]) + "\n\nСвоя ниша: /addniche название: слово1, слово2")
         if cmd == "/addniche":
             body, _, tier = arg.partition("|")
@@ -255,64 +365,303 @@ class Bot:
             return self.say(chat, "OpenStreetMap — подключён (бесплатно)\n"
                                   f"Яндекс — {'подключён' if keys['yandex'] else 'нет ключа (keys.json → yandex_org_api_key)'}\n"
                                   f"2ГИС — {'подключён' if keys['2gis'] else 'нет ключа (keys.json → dgis_api_key)'}")
-        if cmd in ("/draft", "/skip"):
+        if cmd == "/draft":
             L = self.lead_by_arg(arg)
             if not L:
-                return self.say(chat, f"Укажите номер или домен из последнего поиска, например: {cmd} 3")
-            if cmd == "/draft":
-                return self.say(chat, draft_text(L))
-            self.st["skip"].append(leads.business_key(L["b"]))
-            save_state(self.st)
-            return self.say(chat, f"«{L['b']['name']}» больше не покажу.")
+                return self.say(chat, "Укажите номер из последнего поиска, например: /draft 3")
+            return self.say(chat, draft_text(L, self.demo_link(L)))
         req = leads.parse_request(text, leads.load_niches())
         if not req:
             return self.say(chat, "Не понял нишу. Список: /niches, своя: /addniche\n\n" + HELP)
         if not self.busy.acquire(blocking=False):
             return self.say(chat, "Ещё ищу по прошлому запросу, подождите.")
-        threading.Thread(target=self.search, args=(chat, *req), daemon=True).start()
+        spawn(self.search, chat, *req)
 
-    def search(self, chat: int, niche_name: str, city: str):
+    def status_text(self) -> str:
+        today = self.today()
+        lim = self.cfg.get("limits", {})
+        sched = self.cfg.get("schedule", {})
+        statuses = [L.get("status", "new") for L in self.st["leads"].values()]
+        return (f"Сегодня отправлено: {self.st['sent_today'].get(today, 0)} из {lim.get('per_day', 20)}\n"
+                f"Недоставленных сегодня: {self.st['bounces_today'].get(today, 0)}\n"
+                f"Отправка: {'⏸ на паузе (/resume)' if self.st['paused'] else '▶️ работает'}\n"
+                f"Почта: {'настроена' if self.cfg.get('smtp') else 'не настроена (config.json → smtp)'}\n"
+                f"Демо-страницы: {self.demo_url or 'не настроены (config.json → demo)'}\n"
+                f"Расписание: {(sched.get('time') + ', ' + '; '.join(sched['searches'])) if sched.get('searches') else 'нет'}\n"
+                f"Кандидаты: отправлено {statuses.count('sent')}, ответили {statuses.count('replied')}, "
+                f"отказались {statuses.count('refused')}")
+
+    def today(self) -> str:
+        tz = ZoneInfo(self.cfg.get("schedule", {}).get("tz", "Europe/Moscow"))
+        return datetime.now(tz).strftime("%Y-%m-%d")
+
+    # — поиск —
+    def search(self, chat: int, niche_name: str, city: str, limit: int = SHOW_TOP) -> int:
+        """Ищет и присылает карточки. Возвращает число присланных карточек."""
         try:
             niche = leads.load_niches()[niche_name]
             self.say(chat, f"Ищу «{niche_name}» в городе {city}…")
             try:
                 found, notes = leads.find_businesses(niche_name, niche, city)
             except LookupError as e:
-                return self.say(chat, str(e))
+                self.say(chat, str(e))
+                return 0
             except leads.MapError as e:
                 keys = leads.api_keys()
                 tip = "" if keys["2gis"] or keys["yandex"] else (
                     "\n\nБесплатные серверы OpenStreetMap иногда перегружены. Надёжнее подключить ключ 2ГИС или Яндекса "
                     "(см. /sources) — тогда бот будет работать и без OpenStreetMap.")
-                return self.say(chat, f"Источники не ответили.\n{e}\n\nПопробуйте через 5–10 минут.{tip}")
+                self.say(chat, f"Источники не ответили.\n{e}\n\nПопробуйте через 5–10 минут.{tip}")
+                return 0
             skip = set(self.st["skip"]) | set(self.st["seen"]) | p.load_suppression(HERE / "do_not_contact.txt")
             fresh = [b for b in found if leads.keep(b, skip)][:MAX_LEADS]
             if not fresh:
-                return self.say(chat, f"Новых компаний не нашёл ({'; '.join(notes)}). Попробуйте другую нишу или город.")
+                self.say(chat, f"Новых компаний не нашёл ({'; '.join(notes)}). Попробуйте другую нишу или город.")
+                return 0
             n_site = sum(1 for b in fresh if b["site"])
             self.say(chat, f"Нашёл {len(fresh)} новых компаний ({'; '.join(notes)}): {n_site} с сайтом, "
                            f"{len(fresh) - n_site} без. Проверяю сайты, это пара минут.")
             audits = audit_sites(fresh)
             rows = build_leads(fresh, audits, niche.get("tier", "mid"), city)
-            self.st["seen"] += [leads.business_key(L["b"]) for L in rows]
-            top = [L for L in rows if L["score"] >= MIN_SCORE][:SHOW_TOP]
-            self.st["last"] = rows
-            save_state(self.st)
+            ids = []
+            with self.lock:
+                for L in rows:
+                    i = lead_id(L["b"])
+                    L.update(id=i, niche=niche_name, city=city, status="new")
+                    self.st["leads"][i] = L
+                    ids.append(i)
+                self.st["seen"] += [leads.business_key(L["b"]) for L in rows]
+                self.st["last"] = ids
+                if len(self.st["leads"]) > 1000:  # не раздувать файл состояния
+                    for old in list(self.st["leads"])[:-1000]:
+                        self.st["leads"].pop(old)
+            self.save()
+            top = [L for L in rows if L["score"] >= MIN_SCORE][:limit]
             if not top:
                 self.say(chat, f"Оценил {len(rows)} компаний — подходящих мало. Полный список в файле.")
-            else:
-                text = f"Лучшие кандидаты ({len(top)} из {len(rows)}), по приоритету:\n\n"
-                text += "\n\n".join(format_lead(i, L) for i, L in enumerate(top, 1))
-                text += ("\n\nЦены — ориентир по правилам из pricing.json, решение за вами."
-                         "\nЧерновик: /draft номер · не показывать: /skip номер")
-                self.say(chat, text)
+            for n, L in enumerate(top, 1):
+                buttons = [("✅ Сделать демо", f"demo:{L['id']}")] if niche.get("demo") else \
+                          [("✉️ Письмо без демо", f"demo:{L['id']}")]
+                self.say(chat, format_lead(n, L), kb(buttons + [("❌ Пропустить", f"skip:{L['id']}")]))
             self.send_file(chat, f"{niche_name}-{city}.csv".replace(" ", "_"), csv_bytes(rows),
                            "Все компании с приоритетом и рекомендацией (открывается в Excel)")
+            return len(top)
         except Exception as e:  # noqa: BLE001
             print(f"Ошибка поиска: {e!r}")
             self.say(chat, f"Что-то сломалось: {type(e).__name__}. Подробности — в окне, где запущен бот.")
+            return 0
         finally:
-            self.busy.release()
+            if self.busy.locked():
+                self.busy.release()
+
+    # — кнопки —
+    def handle_callback(self, cq: dict):
+        user = cq["from"]["id"]
+        if user != self.st["owner"]:
+            return
+        chat = cq["message"]["chat"]["id"]
+        action, _, i = cq.get("data", "").partition(":")
+        try:
+            self.call("answerCallbackQuery", callback_query_id=cq["id"])
+            self.call("editMessageReplyMarkup", chat_id=chat, message_id=cq["message"]["message_id"],
+                      reply_markup=json.dumps({"inline_keyboard": []}))
+        except requests.RequestException:
+            pass
+        L = self.st["leads"].get(i)
+        if not L:
+            return self.say(chat, "Этого кандидата уже нет в памяти бота. Повторите поиск.")
+        if action == "skip":
+            self.st["skip"].append(leads.business_key(L["b"]))
+            L["status"] = "skipped"
+            self.save()
+            return self.say(chat, f"«{L['b']['name']}» больше не покажу.")
+        if action == "demo":
+            return spawn(self.make_demo, chat, L)
+        if action == "send":
+            return spawn(self.send_lead, chat, L)
+        if action == "edit":
+            self.st["pending_edit"] = i
+            self.save()
+            return self.say(chat, "Пришлите новый текст письма одним сообщением. Если первая строка начинается с "
+                                  "«Тема:», она станет темой письма.")
+        if action == "cancel":
+            L["status"] = "cancelled"
+            self.save()
+            return self.say(chat, f"Отменил. «{L['b']['name']}» не трогаю.")
+
+    def demo_link(self, L: dict) -> str | None:
+        return f"{self.demo_url}/{L['demo']}/" if L.get("demo") and self.demo_url else None
+
+    def make_demo(self, chat: int, L: dict):
+        niche = leads.load_niches().get(L.get("niche", ""), {})
+        note = ""
+        if niche.get("demo"):
+            if not self.demo_url:
+                note = "Демо не собрал: в config.json не задан адрес демо-страниц (demo → public_url).\n\n"
+            elif not L.get("demo"):
+                try:
+                    L["demo"] = demo_builder.build_demo(L["b"], L["niche"], niche, L["city"], sender_info(), self.demo_root)
+                except Exception as e:  # noqa: BLE001
+                    print(f"Ошибка сборки демо: {e!r}")
+                    note = f"Демо собрать не удалось ({type(e).__name__}), письмо — без ссылки.\n\n"
+        L["draft"] = make_draft(L, self.demo_link(L))
+        L["status"] = "draft"
+        self.save()
+        if self.cfg.get("one_click") and L["draft"]["to"]:
+            return self.send_lead(chat, L)
+        self.show_draft(chat, L, note)
+
+    def show_draft(self, chat: int, L: dict, note: str = ""):
+        d = L["draft"]
+        link = self.demo_link(L)
+        head = note + (f"🖼 Демо: {link}\nПроверьте его на телефоне перед отправкой.\n\n" if link else "")
+        to = d["to"] or "нет email — скопируйте текст и отправьте в WhatsApp/Telegram: " + (L["b"]["phone"] or "контактов нет")
+        text = f"{head}Кому: {to}\nТема: {d['subject']}\n\n{d['body']}"
+        buttons = [("✏️ Изменить", f"edit:{L['id']}"), ("❌ Отмена", f"cancel:{L['id']}")]
+        if d["to"] and self.cfg.get("smtp"):
+            buttons.insert(0, ("📨 Отправить", f"send:{L['id']}"))
+        elif d["to"]:
+            text += "\n\n(Почта для отправки не настроена — config.json → smtp. Пока отправьте вручную.)"
+        self.say(chat, text, kb(buttons))
+
+    def apply_edit(self, chat: int, text: str):
+        L = self.st["leads"].get(self.st["pending_edit"])
+        self.st["pending_edit"] = None
+        if not L or not L.get("draft"):
+            self.save()
+            return self.say(chat, "Не нашёл, какое письмо править.")
+        first, _, rest = text.partition("\n")
+        if first.lower().startswith("тема:"):
+            L["draft"]["subject"] = first.split(":", 1)[1].strip()
+            text = rest.strip()
+        L["draft"]["body"] = text
+        self.save()
+        self.show_draft(chat, L, "Текст обновил.\n\n")
+
+    # — отправка —
+    def send_lead(self, chat: int, L: dict):
+        d = L.get("draft") or {}
+        smtp = self.cfg.get("smtp")
+        lim = self.cfg.get("limits", {})
+        today = self.today()
+        problem = None
+        if not smtp:
+            problem = "почта не настроена (config.json → smtp)"
+        elif not d.get("to"):
+            problem = "у компании нет email"
+        elif self.st["paused"]:
+            problem = "отправка на паузе (/resume)"
+        elif self.st["sent_today"].get(today, 0) >= lim.get("per_day", 20):
+            problem = f"дневной лимит {lim.get('per_day', 20)} писем исчерпан, завтра можно продолжить"
+        elif p.suppressed(d["to"], p.load_suppression(HERE / "do_not_contact.txt")) or L.get("status") == "sent":
+            problem = "этот адрес в списке «не писать» или письмо уже отправлено"
+        if problem:
+            return self.say(chat, f"Не отправил «{L['b']['name']}»: {problem}.",
+                            kb([("📨 Отправить", f"send:{L['id']}"), ("❌ Отмена", f"cancel:{L['id']}")])
+                            if "лимит" in problem or "пауз" in problem else None)
+        with self.send_lock:  # пауза между письмами, даже если нажать несколько кнопок подряд
+            wait = self.st["last_send_ts"] + lim.get("min_delay_sec", 90) - time.time()
+            if wait > 0:
+                self.say(chat, f"Отправлю «{L['b']['name']}» через {int(wait)} с (пауза между письмами).")
+                time.sleep(wait)
+            try:
+                mailer.send(smtp, d["to"], d["subject"], d["body"])
+            except Exception as e:  # noqa: BLE001
+                print(f"Ошибка отправки: {e!r}")
+                return self.say(chat, f"Письмо «{L['b']['name']}» не ушло: {type(e).__name__}: {e}",
+                                kb([("📨 Попробовать ещё раз", f"send:{L['id']}")]))
+            with self.lock:
+                self.st["last_send_ts"] = time.time()
+                self.st["sent_today"] = {today: self.st["sent_today"].get(today, 0) + 1}
+                L.update(status="sent", sent_to=d["to"], sent_at=datetime.now().isoformat(timespec="minutes"))
+            self.save()
+        self.say(chat, f"📨 Отправлено: «{L['b']['name']}» → {d['to']}. "
+                       f"Сегодня {self.st['sent_today'][today]} из {lim.get('per_day', 20)}.")
+
+    # — входящие —
+    def inbox_loop(self):
+        while True:
+            try:
+                self.check_inbox()
+            except Exception as e:  # noqa: BLE001
+                print(f"Ошибка чтения почты: {e!r}")
+            time.sleep(int(self.cfg.get("imap", {}).get("every_sec", 300)))
+
+    def check_inbox(self):
+        imap = dict(self.cfg["imap"])
+        imap.setdefault("user", self.cfg.get("smtp", {}).get("user"))
+        imap.setdefault("password", self.cfg.get("smtp", {}).get("password"))
+        seen = set(self.st["mail_seen"])
+        events = mailer.fetch_new(imap, seen)
+        chat = self.st["owner_chat"]
+        if not events:
+            return
+        today = self.today()
+        by_email = {L.get("sent_to"): L for L in self.st["leads"].values() if L.get("sent_to")}
+        for uid, ev in events:
+            seen.add(uid)
+            if ev["kind"] == "bounce":
+                with self.lock:
+                    self.st["bounces_today"] = {today: self.st["bounces_today"].get(today, 0) + 1}
+                L = by_email.get(ev.get("failed"))
+                if L:
+                    L["status"] = "bounced"
+                self.say(chat, f"⚠️ Письмо не доставлено{': ' + ev['failed'] if ev.get('failed') else ''}.")
+                max_b = self.cfg.get("limits", {}).get("max_bounces_per_day", 3)
+                if self.st["bounces_today"][today] >= max_b and not self.st["paused"]:
+                    self.st["paused"] = True
+                    self.say(chat, f"⏸ Сегодня уже {self.st['bounces_today'][today]} недоставленных писем — поставил "
+                                   "отправку на паузу. Проверьте адреса и настройки почты, потом /resume.")
+                continue
+            L = by_email.get(ev["from"])
+            who = f"«{L['b']['name']}» ({ev['from']})" if L else ev["from"]
+            if ev["kind"] == "refusal":
+                with open(HERE / "do_not_contact.txt", "a", encoding="utf-8") as f:
+                    f.write(ev["from"] + "\n")
+                if L:
+                    L["status"] = "refused"
+                self.say(chat, f"🙅 {who} отказался — добавил в список «не писать».\n\n{ev['text'][:500]}")
+            else:
+                if L:
+                    L["status"] = "replied"
+                self.say(chat, f"📩 Ответ от {who}\nТема: {ev['subject']}\n\n{ev['text'][:1500]}\n\n"
+                               "Дальше — вы. Ответьте клиенту из своей почты.")
+        with self.lock:
+            self.st["mail_seen"] = list(seen)[-2000:]
+        self.save()
+
+    # — расписание —
+    def schedule_loop(self):
+        while True:
+            try:
+                self.run_schedule_if_due()
+            except Exception as e:  # noqa: BLE001
+                print(f"Ошибка расписания: {e!r}")
+            time.sleep(30)
+
+    def run_schedule_if_due(self, now: datetime | None = None) -> bool:
+        sched = self.cfg.get("schedule", {})
+        tz = ZoneInfo(sched.get("tz", "Europe/Moscow"))
+        now = now or datetime.now(tz)
+        day = now.strftime("%Y-%m-%d")
+        if self.st["last_auto"] == day or now.strftime("%H:%M") < sched.get("time", "10:00") or not self.st["owner_chat"]:
+            return False
+        self.st["last_auto"] = day
+        self.save()
+        chat = self.st["owner_chat"]
+        left = int(sched.get("max_cards", SHOW_TOP))
+        self.say(chat, "⏰ Поиск по расписанию.")
+        niches = leads.load_niches()
+        for q in sched["searches"]:
+            if left <= 0:
+                break
+            req = leads.parse_request(q, niches)
+            if not req:
+                self.say(chat, f"В расписании непонятный запрос: «{q}» — пропускаю.")
+                continue
+            self.busy.acquire()
+            left -= self.search(chat, *req, limit=left)
+        return True
 
 
 def get_token() -> str:
