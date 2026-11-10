@@ -157,7 +157,7 @@ class BotTests(unittest.TestCase):
             to, subject, body, pdfs = send.call_args.args[1:]
         self.assertEqual(to, "boss@romashka.ru")
         self.assertIn(r["demo"], body)
-        self.assertIn("прикладываю PDF", body)
+        self.assertIn("Прикладываю, как это может выглядеть", body)
         self.assertEqual(pdfs[0][0], "Сайт-Ромашка.pdf")
         self.assertTrue(pdfs[0][1].startswith(b"%PDF"))
         self.assertIn("Отправлено", self.last)
@@ -178,7 +178,7 @@ class BotTests(unittest.TestCase):
         self.assertEqual(self.files[-1][0], "Сайт-Ромашка.pdf")  # PDF пришёл в Telegram на проверку
         self.assertIn("📎 К письму будет приложен PDF", self.last)
         self.assertNotIn("http://", self.last)
-        self.assertIn("прикладываю PDF", r["draft"]["body"])
+        self.assertIn("Прикладываю, как это может выглядеть", r["draft"]["body"])
 
     def test_pdf_failure_is_reported(self):
         self.b.handle(1, 42, "/start")
@@ -206,7 +206,33 @@ class BotTests(unittest.TestCase):
         with mock.patch.object(bot.demo_pdf, "available", return_value=False):
             self.press(f"demo:{g['id']}")
         self.assertIn("Письмо — без демо", self.last)
-        self.assertNotIn("набросок", g["draft"]["body"])
+        self.assertIn("Могу подготовить вариант сайта", g["draft"]["body"])
+
+    def test_letter_template(self):
+        self.b.handle(1, 42, "/start")
+        self.run_search()
+        g, r = self.lead("Гараж Петровича"), self.lead("Ромашка")
+        self.press(f"demo:{g['id']}")
+        d = g["draft"]
+        self.assertEqual(d["subject"], "Сайт для «Гараж Петровича»")
+        self.assertIn("Нашёл «Гараж Петровича» на карте и заметил, что у вас пока нет сайта.", d["body"])
+        self.assertIn("А многие ищут кузовной ремонт именно с телефона.", d["body"])
+        self.assertIn("Прикладываю, как это может выглядеть, а с телефона его можно открыть по ссылке: http://1.2.3.4:8080/", d["body"])
+        self.assertIn("Хорошего дня!", d["body"])
+        self.assertNotIn("Если не актуально", d["body"])
+        self.assertNotIn("{", d["body"])
+        self.press(f"demo:{r['id']}")
+        self.assertIn("ваш сайт неудобно открывать с телефона", r["draft"]["body"])  # у «Ромашки» нет мобильной версии
+        # свой текст в letter.txt
+        custom = self.dir / "letter.txt"
+        custom.write_text("=== письмо ===\nТема: Привет, {компания}\n\n{проблема}. {демо}\n{подпись}\n"
+                          "=== проблема: нет сайта ===\nСайта нет\n=== демо: нет ===\nМогу сделать.\n", encoding="utf-8")
+        with mock.patch.object(bot, "LETTER", custom):
+            d2 = bot.make_draft(g)
+        self.assertEqual(d2["subject"], "Привет, Гараж Петровича")
+        self.assertTrue(d2["body"].startswith("Сайта нет. Могу сделать."))
+        self.assertEqual(bot.problem_key({"kind": "site", "a": {"issues": {"no_https": {}}}}), "проблема: не защищено")
+        self.assertEqual(bot.problem_key({"kind": "site", "a": {"issues": {"no_description": {}}}}), "проблема: другое")
 
     def test_no_email_lead(self):
         self.b.handle(1, 42, "/start")

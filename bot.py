@@ -177,40 +177,71 @@ def csv_bytes(rows: list[dict]) -> bytes:
     return buf.getvalue().encode("utf-8-sig")
 
 
+LETTER = HERE / "letter.txt"
+MOBILE_ISSUES = {"no_viewport", "flash", "old_markup"}
+SECURE_ISSUES = {"no_https", "bad_cert", "mixed_content", "cert_expiring"}
+
+
+def load_letter(path: Path | None = None) -> dict[str, str]:
+    """letter.txt → {"письмо": …, "проблема: нет сайта": …, "демо: pdf": …}. Строки с # — пояснения."""
+    parts, key, buf = {}, None, []
+    for line in (path or LETTER).read_text(encoding="utf-8-sig").splitlines():
+        if line.startswith("#"):
+            continue
+        if line.startswith("===") and line.rstrip().endswith("==="):
+            if key:
+                parts[key] = "\n".join(buf).strip()
+            key, buf = line.strip("= ").strip(), []
+        elif key:
+            buf.append(line)
+    if key:
+        parts[key] = "\n".join(buf).strip()
+    return parts
+
+
+def problem_key(L: dict) -> str:
+    if L["kind"] == "no_site":
+        return "проблема: нет сайта"
+    if L["kind"] == "dead_site":
+        return "проблема: сайт не работает"
+    issues = set((L.get("a") or {}).get("issues") or {})
+    if issues & MOBILE_ISSUES:
+        return "проблема: неудобно с телефона"
+    if issues & SECURE_ISSUES:
+        return "проблема: не защищено"
+    return "проблема: другое"
+
+
 def make_draft(L: dict, demo_url: str | None = None, pdf: bool = False) -> dict:
-    """Письмо: {"to", "subject", "body"}. to пустой, если email нет."""
+    """Письмо по шаблону letter.txt: {"to", "subject", "body"}. to пустой, если email нет."""
     me = sender_info()
     b = L["b"]
-    if pdf and demo_url:
-        demo_line = (f"Я сделал набросок, как мог бы выглядеть ваш сайт, — прикладываю PDF, а на телефоне его можно открыть "
-                     f"по ссылке: {demo_url}\nДанные взял из открытых источников, что-то может быть неточно.")
-    elif pdf:
-        demo_line = ("Я сделал набросок, как мог бы выглядеть ваш сайт на телефоне и на компьютере, — прикладываю PDF.\n"
-                     "Данные взял из открытых источников, что-то может быть неточно.")
-    elif demo_url:
-        demo_line = (f"Я сделал набросок, как мог бы выглядеть ваш сайт на телефоне: {demo_url}\n"
-                     "Данные взял из открытых источников, что-то может быть неточно.")
+    t = load_letter()
+    demo_key = ("демо: pdf и ссылка" if pdf and demo_url else "демо: pdf" if pdf
+                else "демо: ссылка" if demo_url else "демо: нет")
+    niche = leads.load_niches().get(L.get("niche", ""), {})
+    values = {
+        "{проблема}": t.get(problem_key(L), t.get("проблема: другое", "")),
+        "{демо}": t.get(demo_key, ""),
+        "{ссылка}": demo_url or "",
+        "{компания}": b["name"],
+        "{моё_имя}": me.get("name", ""),
+        "{что_ищут}": niche.get("search_phrase", "такие услуги"),
+        "{подпись}": me.get("signature", ""),
+    }
+    text = t["письмо"]
+    for _ in range(2):  # второй проход — подстановки внутри {проблема} и {демо}
+        for k, v in values.items():
+            text = text.replace(k, v)
+    first, _, rest = text.partition("\n")
+    if first.lower().startswith("тема:"):
+        subject, body = first.split(":", 1)[1].strip(), rest.strip()
     else:
-        demo_line = ""
-    if L["kind"] == "site":
-        a = p.Audit(**L["a"])
-        subject, body = p.template_draft(a, me)
-        if demo_line:
-            body = body.replace(me["offer"], f"{demo_line}\n\n{me['offer']}", 1)
-        to = b["email"] or (a.emails[0] if a.emails else "")
-        return {"to": to, "subject": subject, "body": body}
-    who = f"Меня зовут {me['name']}{', ' + me['company'] if me.get('company') else ''}, я делаю сайты."
-    if L["kind"] == "no_site":
-        problem = (f"Нашёл «{b['name']}» на карте, но сайта у вас нет. Когда человек ищет услугу с телефона, "
-                   "он чаще звонит тем, у кого можно сразу посмотреть цены, адрес и отзывы.")
-        offer = demo_line or ("Могу сделать простой сайт: что вы делаете, цены «от», адрес с картой и кнопка "
-                              "«Позвонить». Покажу, как это будет выглядеть, бесплатно.")
-    else:
-        problem = f"У «{b['name']}» указан сайт {b['domain']}, но он сейчас не открывается — клиенты, которые его ищут, видят ошибку."
-        offer = demo_line or "Могу восстановить его или сделать новый простой сайт с ценами, адресом и кнопкой звонка."
-    body = (f"Здравствуйте!\n\n{who} {problem}\n\n{offer}\n\n"
-            f"Если не актуально — просто ответьте «нет», больше писать не буду.\n\n{me['signature']}")
-    return {"to": b["email"], "subject": f"Сайт для «{b['name']}»", "body": body}
+        subject, body = f"Сайт для «{b['name']}»", text.strip()
+    to = b["email"]
+    if not to and L.get("a"):
+        to = (L["a"].get("emails") or [""])[0]
+    return {"to": to, "subject": subject, "body": body}
 
 
 def draft_text(L: dict, demo_url: str | None = None) -> str:
