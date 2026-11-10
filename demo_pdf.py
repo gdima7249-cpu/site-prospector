@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import functools
+import importlib.util
 import html
 import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -24,6 +25,11 @@ html { scroll-behavior: auto !important; }
 [data-reveal] { opacity: 1 !important; transform: none !important; }
 body::after { display: none !important; }
 """
+
+
+def available() -> bool:
+    """Установлен ли Playwright (на маленьком сервере установщик может его пропустить)."""
+    return importlib.util.find_spec("playwright") is not None
 
 
 class _Quiet(SimpleHTTPRequestHandler):

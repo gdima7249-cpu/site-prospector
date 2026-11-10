@@ -59,7 +59,8 @@ class BotTests(unittest.TestCase):
                         mock.patch.object(leads, "CUSTOM_NICHES_FILE", self.dir / "custom.json"),
                         mock.patch.object(bot, "spawn", lambda target, *args: target(*args)),
                         mock.patch.object(bot.time, "sleep"),
-                        mock.patch.object(bot.demo_pdf, "render_pdf", side_effect=self.fake_pdf)]
+                        mock.patch.object(bot.demo_pdf, "render_pdf", side_effect=self.fake_pdf),
+                        mock.patch.object(bot.demo_pdf, "available", return_value=True)]
         for x in self.patches:
             x.start()
         self.make_bot(json.loads(json.dumps(CONFIG)) if config is None else config)
@@ -188,6 +189,24 @@ class BotTests(unittest.TestCase):
         self.assertIn("PDF собрать не удалось", self.last)
         self.assertIn(f"http://1.2.3.4:8080/{r['demo']}/", r["draft"]["body"])  # ссылка остаётся
         self.assertNotIn("PDF", r["draft"]["body"])
+
+    def test_no_browser_on_server(self):
+        self.b.handle(1, 42, "/start")
+        self.run_search()
+        r = self.lead("Ромашка")
+        with mock.patch.object(bot.demo_pdf, "available", return_value=False), \
+                mock.patch.object(bot.demo_pdf, "render_pdf") as render:
+            self.press(f"demo:{r['id']}")
+            render.assert_not_called()
+            self.b.handle(1, 42, "/status")
+        self.assertIn("PDF с демо: нет браузера на сервере", self.last)
+        self.assertIn(f"http://1.2.3.4:8080/{r['demo']}/", r["draft"]["body"])  # остаётся ссылка
+        self.b.demo_url = ""
+        g = self.lead("Гараж Петровича")
+        with mock.patch.object(bot.demo_pdf, "available", return_value=False):
+            self.press(f"demo:{g['id']}")
+        self.assertIn("Письмо — без демо", self.last)
+        self.assertNotIn("набросок", g["draft"]["body"])
 
     def test_no_email_lead(self):
         self.b.handle(1, 42, "/start")

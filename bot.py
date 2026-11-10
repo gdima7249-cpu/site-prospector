@@ -412,6 +412,7 @@ class Bot:
                 f"Недоставленных сегодня: {self.st['bounces_today'].get(today, 0)}\n"
                 f"Отправка: {'⏸ на паузе (/resume)' if self.st['paused'] else '▶️ работает'}\n"
                 f"Почта: {'настроена' if self.cfg.get('smtp') else 'не настроена (config.json → smtp)'}\n"
+                f"PDF с демо: {'работает' if demo_pdf.available() else 'нет браузера на сервере'}\n"
                 f"Демо-страницы: {self.demo_url or 'не настроены (config.json → demo)'}\n"
                 f"Расписание: {(sched.get('time') + ', ' + '; '.join(sched['searches'])) if sched.get('searches') else 'нет'}\n"
                 f"Кандидаты: отправлено {statuses.count('sent')}, ответили {statuses.count('replied')}, "
@@ -532,11 +533,13 @@ class Bot:
     def make_demo(self, chat: int, L: dict):
         niche = leads.load_niches().get(L.get("niche", ""), {})
         demo_cfg = self.cfg.get("demo", {})
-        want_pdf = demo_cfg.get("pdf", True)
+        want_pdf = demo_cfg.get("pdf", True) and demo_pdf.available()
         note = ""
+        if demo_cfg.get("pdf", True) and not want_pdf:
+            note = "PDF выключен: на сервере не установлен браузер (мало места на диске — см. журнал установки).\n\n"
         if niche.get("demo"):
             if not self.demo_url and not want_pdf:
-                note = "Демо не собрал: в config.json не задан ни адрес демо-страниц (demo → public_url), ни PDF (demo → pdf).\n\n"
+                note += "Демо не показать: нет ни адреса демо-страниц (demo → public_url), ни PDF. Письмо — без демо.\n\n"
             elif not L.get("demo"):
                 self.say(chat, f"Собираю демо для «{L['b']['name']}»" + (" и PDF…" if want_pdf else "…"))
                 try:

@@ -1,6 +1,2 @@
 requests>=2.31
 beautifulsoup4>=4.12
-# снимки демо в PDF (браузер ставит deploy/install.sh):
-playwright>=1.45
-# только для режима --llm:
-anthropic>=2.6

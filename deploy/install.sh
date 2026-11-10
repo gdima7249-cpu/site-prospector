@@ -36,14 +36,28 @@ if [ -x "$APP_DIR/.venv/bin/python" ] && ! py_ok "$APP_DIR/.venv/bin/python"; th
   rm -rf -- "$APP_DIR/.venv"
 fi
 "$PY" -m venv "$APP_DIR/.venv"
-"$APP_DIR/.venv/bin/pip" install -q --upgrade pip
-"$APP_DIR/.venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"
+"$APP_DIR/.venv/bin/pip" install -q --no-cache-dir --upgrade pip
+"$APP_DIR/.venv/bin/pip" install -q --no-cache-dir -r "$APP_DIR/requirements.txt"
+rm -rf -- "$APP_DIR/.tools"   # uv нужен был только чтобы поставить Python
 
-echo "→ Браузер Chromium для PDF с демо (несколько сотен МБ, один раз)"
+# PDF с демо: облегчённый Chromium (~260 МБ) + Playwright (~140 МБ) + системные библиотеки.
+# Ставим, только если на диске останется запас: переполненный диск ломает и другие программы на сервере.
 export PLAYWRIGHT_BROWSERS_PATH="$APP_DIR/.browsers"
-if ! "$APP_DIR/.venv/bin/python" -m playwright install --with-deps chromium; then
-  echo "⚠ Браузер не установился — бот будет работать, но без PDF (он напишет об этом в Telegram)."
-  echo "  Пришлите текст ошибки выше — разберёмся."
+FREE_MB=$(df -Pm "$APP_DIR" | awk 'NR==2 {print $4}')
+if [ "${NO_PDF:-0}" = "1" ]; then
+  echo "→ PDF пропускаю (NO_PDF=1)"
+elif [ "$FREE_MB" -lt "${MIN_FREE_MB_FOR_PDF:-900}" ]; then
+  echo "⚠ На диске свободно ${FREE_MB} МБ — мало для браузера (нужно больше ${MIN_FREE_MB_FOR_PDF:-900} МБ)."
+  echo "  Ставлю бота без PDF. Освободите место и запустите установку ещё раз — PDF появится."
+else
+  echo "→ PDF с демо: Playwright и облегчённый браузер Chromium (свободно ${FREE_MB} МБ)"
+  if "$APP_DIR/.venv/bin/pip" install -q --no-cache-dir -r "$APP_DIR/requirements-pdf.txt" \
+     && "$APP_DIR/.venv/bin/python" -m playwright install --with-deps --only-shell chromium; then
+    apt-get clean
+    echo "   Готово. Свободно на диске: $(df -Ph "$APP_DIR" | awk 'NR==2 {print $4}')"
+  else
+    echo "⚠ Браузер не установился — бот будет работать без PDF. Пришлите текст ошибки выше."
+  fi
 fi
 
 for f in token.txt config.json; do
