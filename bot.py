@@ -500,7 +500,8 @@ class Bot:
                 note = "Демо не собрал: в config.json не задан адрес демо-страниц (demo → public_url).\n\n"
             elif not L.get("demo"):
                 try:
-                    L["demo"] = demo_builder.build_demo(L["b"], L["niche"], niche, L["city"], sender_info(), self.demo_root)
+                    L["demo"] = demo_builder.build_demo(L["b"], L["niche"], niche, L["city"], sender_info(), self.demo_root,
+                                                      self.cfg.get("demo", {}).get("template", "studio"))
                 except Exception as e:  # noqa: BLE001
                     print(f"Ошибка сборки демо: {e!r}")
                     note = f"Демо собрать не удалось ({type(e).__name__}), письмо — без ссылки.\n\n"

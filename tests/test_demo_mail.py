@@ -38,7 +38,7 @@ class Demo(unittest.TestCase):
                                hours="Mo-Fr 09:00-18:00; Sa 10:00-15:00", rating=4.6, reviews=64, sources=["2ГИС"])
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            tok = d.build_demo(b, "кузовной ремонт", niches["кузовной ремонт"], "Омск", {"name": "Дмитрий"}, root)
+            tok = d.build_demo(b, "кузовной ремонт", niches["кузовной ремонт"], "Омск", {"name": "Дмитрий"}, root, "simple")
             self.assertGreaterEqual(len(tok), 12)
             page = (root / tok / "index.html").read_text(encoding="utf-8")
             self.assertIn("Кузов &lt;b&gt;&amp;&lt;/b&gt; Ко", page)  # HTML из данных не исполняется
@@ -57,13 +57,52 @@ class Demo(unittest.TestCase):
             self.assertTrue((root / tok / "img" / "hero-car.svg").exists())
             self.assertIn("Disallow: /", (root / "robots.txt").read_text())
             tok2 = d.build_demo(leads.new_business(name="Без данных"), "автосервис", niches["автосервис"], "Тула",
-                                {"name": "Д"}, root)
+                                {"name": "Д"}, root, "simple")
             page2 = (root / tok2 / "index.html").read_text(encoding="utf-8")
             self.assertNotIn('id="status"', page2)
             self.assertNotIn('id="rating"', page2)
             self.assertIn("уточняйте по телефону", page2)
             with self.assertRaises(ValueError):
                 d.build_demo(b, "стоматология", niches["стоматология"], "Омск", {}, root)
+
+
+    def test_build_studio(self):
+        niches = leads.load_niches()
+        b = leads.new_business(name="Кузов <b>&</b> Ко", phone="+7 (913) 977-45-07", address="ул. Заводская, 1/2",
+                               hours="Mo-Fr 09:00-18:00; Sa 10:00-15:00", rating=4.6, reviews=64, sources=["2ГИС"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            tok = d.build_demo(b, "кузовной ремонт", niches["кузовной ремонт"], "Омск", {"name": "Дмитрий"}, root)
+            page = (root / tok / "index.html").read_text(encoding="utf-8")
+            self.assertIsNone(re.search(r"\$\{?[a-z_]+", page))
+            self.assertIn("Кузов &lt;b&gt;&amp;&lt;/b&gt; Ко", page)
+            self.assertIn('data-tz="Asia/Omsk"', page)
+            self.assertIn('"6": ["10:00", "15:00"]', page)
+            self.assertIn("Кузовной ремонт<br><span class=\"hero__title-muted\">и покраска</span>", page)
+            self.assertIn("tel:+79139774507", page)
+            self.assertIn('id="rating"', page)
+            self.assertIn("noindex", page)
+            # ничего из настоящего сайта kuzovomsk.ru: ни цен, ни отзывов, ни обещаний, ни фото их цеха
+            for banned in ("от 5 000", "DOOCAR", "Mitra", "1999", "гарантия до", "Павел", "svc-geometry", "svc-bumper",
+                           "muhachev", "908 807", "калькулятор", "Калькулятор"):
+                self.assertNotIn(banned, page)
+            # для каждого использованного фото CC BY — автор в подвале
+            for img in set(re.findall(r"img/(svc-[a-z]+-800|tech-1000)\.webp", page)):
+                self.assertIn(d.STUDIO_PHOTOS[img].split("</a>")[0], page)
+            self.assertIn("Andrew Milligan", page)
+            assets = root / "_assets" / "studio"
+            for f in ("css/styles.css", "css/demo.css", "js/demo.js", "fonts/inter-cyrillic-wght-normal.woff2",
+                      "img/hero-1600.jpg", "favicon.svg"):
+                self.assertTrue((assets / f).exists(), f)
+            self.assertFalse((assets / "index.tpl.html").exists())
+            self.assertFalse(any("geometry" in p.name or "bumper" in p.name for p in (assets / "img").iterdir()))
+            for ref in re.findall(r'(?:href|src)="\.\./_assets/studio/([^"#?]+)"', page):
+                self.assertTrue((assets / ref).exists(), ref)  # все ссылки на файлы дизайна рабочие
+            bare = d.build_demo(leads.new_business(name="Шины"), "шиномонтаж", niches["шиномонтаж"], "Тула", {"name": "Д"}, root)
+            page2 = (root / bare / "index.html").read_text(encoding="utf-8")
+            self.assertNotIn('id="rating"', page2)
+            self.assertIn("data-hours='{}'", page2)
+            self.assertIn("Режим уточняйте по телефону", page2)
 
 
 def make_msg(frm, subject, body):

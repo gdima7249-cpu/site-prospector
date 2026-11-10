@@ -1,0 +1,41 @@
+/* Дополнения для автоматических демо. Основные стили — styles.css из эталона, без изменений. */
+.demo-bar {
+  position: relative; z-index: 60; padding: 8px var(--gutter);
+  background: #2a2412; color: #f4dc8a; font-size: 13px; line-height: 1.4; text-align: center;
+  border-bottom: 1px solid rgba(244, 220, 138, .25);
+}
+/* шапка фиксированная — пока страница не прокручена, опускаем её под плашку */
+.demo-bar ~ .hdr { top: var(--demo-bar-h, 0px); transition: top .3s, background-color .4s, border-color .4s; }
+.demo-bar ~ .hdr.is-scrolled { top: 0; }
+
+.demo-note { margin-top: 28px; color: var(--muted); font-size: 15px; max-width: 640px; }
+.svc__price--ask { color: var(--muted); font-weight: 500; font-size: 15px; white-space: normal; text-align: right; line-height: 1.3; }
+@media (max-width: 900px), (hover: none) {
+  /* на телефоне «уточняйте по телефону» — под названием услуги, а не в узкой колонке справа */
+  .svc__link:has(.svc__price--ask) { grid-template-columns: 44px minmax(0, 1fr); grid-template-areas: "n t" ". p" ". d"; }
+  .svc__price--ask { grid-area: p; justify-self: start; text-align: left; padding-top: 0; }
+}
+
+.steps--3 { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 960px) {
+  .steps--3 { grid-template-columns: 1fr; }
+  .steps--3 li, .steps--3 li + li { padding-left: 0; border-left: 0; }
+}
+
+.rating-big { display: grid; grid-template-columns: auto 1fr; gap: clamp(24px, 4vw, 64px); align-items: end;
+  border-top: 1px solid var(--line-2); padding-top: 32px; }
+.rating-big__num { font: 600 clamp(80px, 12vw, 180px)/.85 var(--display); letter-spacing: -.05em; }
+.rating-big__stars { color: var(--accent-2); font-size: 22px; letter-spacing: 4px; }
+.rating-big p { color: var(--muted); max-width: 520px; margin-top: 12px; }
+@media (max-width: 620px) { .rating-big { grid-template-columns: 1fr; } }
+
+.demo-bar__short { display: none; }
+@media (max-width: 760px) { .demo-bar__full { display: none; } .demo-bar__short { display: inline; } .demo-bar { font-size: 12px; padding: 6px 12px; } }
+/* длинное название компании не должно раздвигать шапку шире экрана */
+.brand { flex-shrink: 1; min-width: 0; }
+.brand__name { overflow-wrap: anywhere; }
+/* длинные слова в названиях услуг («Восстановление») не должны раздвигать страницу на телефоне */
+.svc__link > * { min-width: 0; }
+.svc__title { white-space: normal; overflow-wrap: break-word; hyphens: auto; }
+/* очень узкие экраны (iPhone SE 1-го поколения): крупный номер не должен выходить за край */
+@media (max-width: 360px) { .contacts__phone { font-size: 30px; } }

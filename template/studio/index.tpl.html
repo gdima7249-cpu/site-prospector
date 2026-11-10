@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>$title</title>
+  <meta name="description" content="$description">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#0a0a0b">
+  <link rel="icon" href="${assets}favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="${assets}fonts/inter-tight-cyrillic-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="${assets}fonts/inter-cyrillic-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="${assets}css/styles.css">
+  <link rel="stylesheet" href="${assets}css/demo.css">
+  <script>document.documentElement.classList.add('js')</script>
+</head>
+<body data-tz="$tz" data-hours='$hours_json'>
+<!-- Демо собрано ботом site-prospector по эталону. Только найденные факты: без цен, отзывов и обещаний компании. -->
+<div class="demo-bar">$plaque</div>
+<a class="skip" href="#main">Перейти к содержанию</a>
+
+<header class="hdr" data-hdr>
+  <div class="wrap hdr__row">
+    <a class="brand" href="#top" aria-label="$name — наверх">
+      <span class="brand__mark" aria-hidden="true"></span>
+      <span class="brand__name">$brand</span>
+    </a>
+    <nav class="nav" id="nav" aria-label="Основное меню">
+      <a href="#services">Услуги</a>
+      <a href="#how">Как попасть</a>
+      $nav_rating
+      <a href="#contacts">Контакты</a>
+      <div class="nav__extra">
+        <a class="nav__phone" href="$phone_href">$phone_text</a>
+        <span class="nav__meta">$hours_short</span>
+        <a class="btn btn--light" href="$route_href" target="_blank" rel="noopener">Маршрут</a>
+      </div>
+    </nav>
+    <div class="hdr__right">
+      <div class="hdr__contact">
+        <a class="hdr__phone" href="$phone_href">$phone_text</a>
+        <span class="status" data-open-status>$hours_short</span>
+      </div>
+      <a class="btn btn--light btn--sm" href="$phone_href">Позвонить</a>
+    </div>
+    <button class="burger" type="button" aria-controls="nav" aria-expanded="false" aria-label="Открыть меню"><span></span><span></span></button>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero" id="top">
+  <div class="hero__media" aria-hidden="true">
+    <picture>
+      <source type="image/webp" srcset="${assets}img/hero-1000.webp 1000w, ${assets}img/hero-1600.webp 1600w, ${assets}img/hero-2400.webp 2400w" sizes="100vw">
+      <img src="${assets}img/hero-1600.jpg" alt="" width="2400" height="1600" fetchpriority="high">
+    </picture>
+  </div>
+  <div class="hero__shade" aria-hidden="true"></div>
+  <div class="wrap hero__content">
+    <p class="kicker" data-reveal><span class="kicker__dot"></span>$kicker</p>
+    <h1 class="hero__title" data-reveal>$hero_title</h1>
+    <p class="hero__lead" data-reveal>$lead</p>
+    <div class="hero__cta" data-reveal>
+      <a class="btn btn--light btn--lg" href="$phone_href">Позвонить <span class="btn__arrow" aria-hidden="true">→</span></a>
+      <a class="btn btn--ghost btn--lg" href="$route_href" target="_blank" rel="noopener">Построить маршрут</a>
+    </div>
+  </div>
+  <div class="wrap">
+    <ul class="hero__facts" data-reveal>
+$facts
+    </ul>
+  </div>
+</section>
+
+<div class="marquee" aria-hidden="true">
+  <div class="marquee__track">
+    $marquee$marquee
+  </div>
+</div>
+
+<section class="section svc" id="services">
+  <div class="wrap">
+    <div class="head">
+      <p class="label" data-reveal><span>01</span>Услуги</p>
+      <h2 data-reveal>Что мы делаем</h2>
+    </div>
+    <ol class="svc__list">
+$services
+    </ol>
+    <p class="demo-note" data-reveal>Цены и описания услуг появятся на сайте после согласования с вами. Сейчас — уточняйте по телефону.</p>
+  </div>
+  <div class="preview" aria-hidden="true"><img src="${assets}img/svc-body-800.webp" alt=""></div>
+</section>
+
+<section class="section how" id="how">
+  <div class="wrap">
+    <div class="head">
+      <p class="label" data-reveal><span>02</span>Как попасть</p>
+      <h2 data-reveal>Три шага</h2>
+    </div>
+    <ol class="steps steps--3">
+      <li data-reveal><span class="steps__n">01</span><h3>Позвоните</h3><p>По&nbsp;телефону <a href="$phone_href">$phone_text</a>&nbsp;— расскажите, что случилось.</p></li>
+      <li data-reveal><span class="steps__n">02</span><h3>Приезжайте на&nbsp;осмотр</h3><p>$address_short. Мастер посмотрит автомобиль и&nbsp;назовёт стоимость.</p></li>
+      <li data-reveal><span class="steps__n">03</span><h3>Заберите машину</h3><p>Сроки и&nbsp;цену согласуем до&nbsp;начала работ.</p></li>
+    </ol>
+  </div>
+</section>
+$rating_section
+<section class="section contacts" id="contacts">
+  <div class="wrap">
+    <p class="label" data-reveal><span>$contacts_num</span>Контакты</p>
+    <div class="contacts__grid">
+      <div class="contacts__info">
+        <a class="contacts__phone" href="$phone_href" data-reveal>$phone_text</a>
+        <p class="contacts__sub" data-reveal>Телефон</p>
+        <dl class="contacts__list" data-reveal>
+          <div><dt>Адрес</dt><dd>$address</dd></div>
+          <div><dt>Режим</dt><dd>$hours_text</dd></div>
+        </dl>
+        <div class="contacts__actions" data-reveal>
+          <a class="btn btn--light" href="$route_href" target="_blank" rel="noopener">Построить маршрут</a>
+        </div>
+      </div>
+      <div class="contacts__map" data-reveal>
+        <iframe title="$name на карте" src="$map_src" loading="lazy" allowfullscreen></iframe>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="wrap">
+    <p class="footer__word" aria-hidden="true">$name</p>
+    <div class="footer__row">
+      <span>$footer_line</span>
+      <nav class="footer__links" aria-label="Ссылки">
+        <a href="$phone_href">$phone_text</a>
+        <a href="#top">Наверх ↑</a>
+      </nav>
+    </div>
+    <details class="credits">
+      <summary>Фотографии на сайте</summary>
+      <ul>
+$credits
+      </ul>
+    </details>
+    <p class="footer__legal">Демо-концепт сайта. Фотографии — иллюстрации со свободными лицензиями, не работы компании. © <span data-year>2026</span></p>
+  </div>
+</footer>
+
+<div class="callbar">
+  <a class="callbar__btn callbar__btn--light" href="$phone_href">Позвонить</a>
+  <a class="callbar__btn" href="$route_href" target="_blank" rel="noopener">Маршрут</a>
+</div>
+
+<script src="${assets}js/demo.js" defer></script>
+</body>
+</html>

@@ -163,7 +163,8 @@ class BotTests(unittest.TestCase):
         self.press(f"demo:{g['id']}")
         html = (self.b.demo_root / g["demo"] / "index.html").read_text(encoding="utf-8")
         self.assertIn("tel:+79132223344", html)
-        self.assertIn("70 отзывов в 2ГИС", html)
+        self.assertIn("70 отзывов", html)
+        self.assertTrue((self.b.demo_root / "_assets" / "studio" / "css" / "styles.css").exists())
         self.assertIn("нет email", self.last)
         self.assertNotIn(f"send:{g['id']}", self.buttons())
 

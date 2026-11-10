@@ -20,10 +20,11 @@
   "max_bounces_per_day": 3
  },
  "demo": {
-  "_comment": "public_url — адрес, по которому клиенты откроют демо. Лучше поддомен с HTTPS (см. README), на крайний случай http://IP-сервера:8080",
+  "_comment": "template: studio — тёмный дизайн из эталона kuzovomsk-site, simple — простой светлый. public_url — адрес, по которому клиенты откроют демо. Лучше поддомен с HTTPS (см. README), на крайний случай http://IP-сервера:8080",
   "public_url": "http://IP-СЕРВЕРА:8080",
   "port": 8080,
-  "dir": "public_demos"
+  "dir": "public_demos",
+  "template": "studio"
  },
  "schedule": {
   "_comment": "Поиск по расписанию раз в день: время и часовой пояс, запросы как в боте, максимум карточек за день.",
