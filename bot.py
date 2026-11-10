@@ -57,6 +57,7 @@ HELP = """Напишите нишу и город, например:
 Команды:
 /status — сколько писем отправлено сегодня, пауза, расписание
 /pause и /resume — остановить и возобновить отправку
+/testmail — пробное письмо на ваш ящик (проверка почты)
 /draft 3 — черновик письма для кандидата №3 из последнего поиска
 /niches — список ниш · /addniche натяжные потолки: потолк, натяжн | high — своя ниша
 /sources — какие источники подключены
@@ -337,6 +338,8 @@ class Bot:
             return self.say(chat, HELP)
         if cmd == "/status":
             return self.say(chat, self.status_text())
+        if cmd == "/testmail":
+            return spawn(self.test_mail, chat)
         if cmd in ("/pause", "/resume"):
             self.st["paused"] = cmd == "/pause"
             self.save()
@@ -376,6 +379,19 @@ class Bot:
         if not self.busy.acquire(blocking=False):
             return self.say(chat, "Ещё ищу по прошлому запросу, подождите.")
         spawn(self.search, chat, *req)
+
+    def test_mail(self, chat: int):
+        """Пробное письмо на свой же ящик: проверка логина, пароля и адреса SMTP без писем клиентам."""
+        smtp = self.cfg.get("smtp")
+        if not smtp:
+            return self.say(chat, "Почта не настроена: в config.json нет раздела smtp.")
+        to = smtp.get("from") or smtp["user"]
+        try:
+            mailer.send(smtp, to, "Проверка бота site-prospector", "Если вы видите это письмо, отправка работает.")
+        except Exception as e:  # noqa: BLE001
+            return self.say(chat, f"❌ Письмо не ушло: {type(e).__name__}: {e}\n\nЧастые причины: обычный пароль вместо "
+                                  "«пароля приложения», неверный host/port, в ящике не разрешены почтовые программы.")
+        self.say(chat, f"✅ Пробное письмо отправлено на {to}. Проверьте, что оно пришло во «Входящие», а не в «Спам».")
 
     def status_text(self) -> str:
         today = self.today()
@@ -599,8 +615,11 @@ class Bot:
             return
         today = self.today()
         by_email = {L.get("sent_to"): L for L in self.st["leads"].values() if L.get("sent_to")}
+        me = (self.cfg.get("smtp", {}).get("from") or self.cfg.get("smtp", {}).get("user") or "").lower()
         for uid, ev in events:
             seen.add(uid)
+            if ev.get("from") == me:
+                continue  # собственные письма (например, /testmail) — не ответы клиентов
             if ev["kind"] == "bounce":
                 with self.lock:
                     self.st["bounces_today"] = {today: self.st["bounces_today"].get(today, 0) + 1}

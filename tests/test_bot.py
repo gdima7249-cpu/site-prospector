@@ -259,6 +259,21 @@ class BotTests(unittest.TestCase):
         self.assertIn("поставил отправку на паузу", self.last)
         self.assertEqual(sorted(self.b.st["mail_seen"]), ["1", "2", "3", "4", "5"])
 
+    def test_testmail(self):
+        self.b.handle(1, 42, "/start")
+        with mock.patch.object(bot.mailer, "send") as send:
+            self.b.handle(1, 42, "/testmail")
+        self.assertEqual(send.call_args.args[1], "me@my.ru")
+        self.assertIn("✅", self.last)
+        with mock.patch.object(bot.mailer, "send", side_effect=bot.mailer.smtplib.SMTPAuthenticationError(535, b"bad")):
+            self.b.handle(1, 42, "/testmail")
+        self.assertIn("пароля приложения", self.last)
+        with mock.patch.object(bot.mailer, "fetch_new", return_value=[("9", {"kind": "reply", "from": "me@my.ru",
+                                                                            "subject": "Проверка", "text": "x"})]):
+            n = len(self.out)
+            self.b.check_inbox()
+        self.assertEqual(len(self.out), n)  # своё письмо — не «ответ клиента»
+
     def test_schedule(self):
         self.b.handle(1, 42, "/start")
         tz = ZoneInfo("Europe/Moscow")
