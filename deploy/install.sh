@@ -52,7 +52,13 @@ elif [ "$FREE_MB" -lt "${MIN_FREE_MB_FOR_PDF:-900}" ]; then
 else
   echo "→ PDF с демо: Playwright и облегчённый браузер Chromium (свободно ${FREE_MB} МБ)"
   apt-get install -y -qq libatomic1 >/dev/null   # нужна Playwright на минимальных системах (Ubuntu 20.04)
-  if "$APP_DIR/.venv/bin/pip" install -q --no-cache-dir -r "$APP_DIR/requirements-pdf.txt" \
+  # Ubuntu 20.04: начиная с Playwright 1.58 облегчённый Chromium для неё не выпускают — берём 1.57
+  PW_REQ=(-r "$APP_DIR/requirements-pdf.txt")
+  if grep -q '^VERSION_ID="20.04"' /etc/os-release 2>/dev/null; then
+    PW_REQ=("playwright==1.57.0")
+    echo "   Ubuntu 20.04 — ставлю Playwright 1.57 (последняя версия с поддержкой этой системы)"
+  fi
+  if "$APP_DIR/.venv/bin/pip" install -q --no-cache-dir "${PW_REQ[@]}" \
      && "$APP_DIR/.venv/bin/python" -m playwright install --with-deps --only-shell chromium; then
     apt-get clean
     echo "   Готово. Свободно на диске: $(df -Ph "$APP_DIR" | awk 'NR==2 {print $4}')"
