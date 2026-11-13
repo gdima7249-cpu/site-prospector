@@ -51,6 +51,7 @@ elif [ "$FREE_MB" -lt "${MIN_FREE_MB_FOR_PDF:-900}" ]; then
   echo "  Ставлю бота без PDF. Освободите место и запустите установку ещё раз — PDF появится."
 else
   echo "→ PDF с демо: Playwright и облегчённый браузер Chromium (свободно ${FREE_MB} МБ)"
+  apt-get install -y -qq libatomic1 >/dev/null   # нужна Playwright на минимальных системах (Ubuntu 20.04)
   if "$APP_DIR/.venv/bin/pip" install -q --no-cache-dir -r "$APP_DIR/requirements-pdf.txt" \
      && "$APP_DIR/.venv/bin/python" -m playwright install --with-deps --only-shell chromium; then
     apt-get clean
