@@ -333,7 +333,7 @@ class Bot:
             print(f"Демо-страницы: {self.demo_url or 'порт ' + str(self.cfg['demo']['port'])}")
         if self.cfg.get("imap"):
             threading.Thread(target=self.inbox_loop, daemon=True).start()
-        if self.cfg.get("schedule", {}).get("searches"):
+        if self.schedule_queries():
             threading.Thread(target=self.schedule_loop, daemon=True).start()
         print("Бот запущен. Напишите ему в Telegram. Остановить — Ctrl+C.")
         while True:
@@ -445,9 +445,17 @@ class Bot:
                 f"Почта: {'настроена' if self.cfg.get('smtp') else 'не настроена (config.json → smtp)'}\n"
                 f"PDF с демо: {'работает' if demo_pdf.available() else 'нет браузера на сервере'}\n"
                 f"Ссылки на демо: {self.demo_url if self.demo_link({'demo': 'x'}) else 'выключены (нужен домен; демо уходят в PDF)'}\n"
-                f"Расписание: {(sched.get('time') + ', ' + '; '.join(sched['searches'])) if sched.get('searches') else 'нет'}\n"
+                f"{self.schedule_status()}\n"
                 f"Кандидаты: отправлено {statuses.count('sent')}, ответили {statuses.count('replied')}, "
                 f"отказались {statuses.count('refused')}")
+
+    def schedule_status(self) -> str:
+        qs = self.schedule_queries()
+        if not qs:
+            return "Расписание: нет"
+        sched = self.cfg.get("schedule", {})
+        nxt = qs[self.st.get("sched_pos", 0) % len(qs)]
+        return f"Расписание: {sched.get('time', '10:00')}, {len(qs)} запросов, следующий — «{nxt}»"
 
     def today(self) -> str:
         tz = ZoneInfo(self.cfg.get("schedule", {}).get("tz", "Europe/Moscow"))
@@ -732,28 +740,44 @@ class Bot:
                 print(f"Ошибка расписания: {e!r}")
             time.sleep(30)
 
+    def schedule_queries(self) -> list[str]:
+        """Запросы расписания: searches + все сочетания niches × cities (город за городом)."""
+        sched = self.cfg.get("schedule", {})
+        qs = list(sched.get("searches", []))
+        qs += [f"{n} {c}" for c in sched.get("cities", []) for n in sched.get("niches", [])]
+        return list(dict.fromkeys(qs))
+
     def run_schedule_if_due(self, now: datetime | None = None) -> bool:
         sched = self.cfg.get("schedule", {})
         tz = ZoneInfo(sched.get("tz", "Europe/Moscow"))
         now = now or datetime.now(tz)
         day = now.strftime("%Y-%m-%d")
-        if self.st["last_auto"] == day or now.strftime("%H:%M") < sched.get("time", "10:00") or not self.st["owner_chat"]:
+        queries = self.schedule_queries()
+        if (self.st["last_auto"] == day or now.strftime("%H:%M") < sched.get("time", "10:00")
+                or not self.st["owner_chat"] or not queries):
             return False
         self.st["last_auto"] = day
         self.save()
         chat = self.st["owner_chat"]
         left = int(sched.get("max_cards", SHOW_TOP))
-        self.say(chat, "⏰ Поиск по расписанию.")
+        max_searches = int(sched.get("max_searches", 8))  # не гонять все 60 запросов за день, если карточек мало
+        pos = self.st.get("sched_pos", 0) % len(queries)
+        order = queries[pos:] + queries[:pos]  # продолжаем с места, где остановились вчера
+        self.say(chat, f"⏰ Поиск по расписанию: начинаю с «{order[0]}» ({pos + 1}-й из {len(queries)} запросов).")
         niches = leads.load_niches()
-        for q in sched["searches"]:
+        done = 0
+        for q in order[:max_searches]:
             if left <= 0:
                 break
+            done += 1
             req = leads.parse_request(q, niches)
             if not req:
                 self.say(chat, f"В расписании непонятный запрос: «{q}» — пропускаю.")
                 continue
             self.busy.acquire()
             left -= self.search(chat, *req, limit=left)
+        self.st["sched_pos"] = (pos + done) % len(queries)
+        self.save()
         return True
 
 

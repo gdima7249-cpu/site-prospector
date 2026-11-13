@@ -370,6 +370,31 @@ class BotTests(unittest.TestCase):
         self.assertEqual(search.call_args.args, (1, "кузовной ремонт", "Омск"))
         self.assertEqual(search.call_args.kwargs, {"limit": 5})
 
+    def test_schedule_cities_rotation(self):
+        self.b.cfg["schedule"] = {"time": "09:00", "tz": "Europe/Moscow", "max_cards": 5, "max_searches": 3,
+                                  "niches": ["автосервис", "шиномонтаж"], "cities": ["Омск", "Тула", "Казань"]}
+        self.b.handle(1, 42, "/start")
+        self.assertEqual(self.b.schedule_queries(), ["автосервис Омск", "шиномонтаж Омск", "автосервис Тула",
+                                                     "шиномонтаж Тула", "автосервис Казань", "шиномонтаж Казань"])
+        tz = ZoneInfo("Europe/Moscow")
+        calls = []
+
+        def fake_search(chat, niche, city, limit):
+            calls.append(f"{niche} {city}")
+            self.b.busy.release()
+            return 0  # карточек нет — бот идёт дальше, но не больше max_searches запросов
+        with mock.patch.object(self.b, "search", side_effect=fake_search):
+            self.b.run_schedule_if_due(datetime(2026, 11, 10, 9, 0, tzinfo=tz))
+            self.assertEqual(calls, ["автосервис Омск", "шиномонтаж Омск", "автосервис Тула"])
+            calls.clear()
+            self.b.run_schedule_if_due(datetime(2026, 11, 11, 9, 0, tzinfo=tz))  # назавтра — с места остановки
+            self.assertEqual(calls, ["шиномонтаж Тула", "автосервис Казань", "шиномонтаж Казань"])
+            calls.clear()
+            self.b.run_schedule_if_due(datetime(2026, 11, 12, 9, 0, tzinfo=tz))  # и по кругу
+            self.assertEqual(calls[0], "автосервис Омск")
+        self.b.handle(1, 42, "/status")
+        self.assertIn("6 запросов, следующий — «шиномонтаж Тула»", self.last)
+
     def test_status_and_niches(self):
         self.b.handle(1, 42, "/status")
         self.assertIn("Сегодня отправлено: 0 из 20", self.last)
