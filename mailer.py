@@ -22,6 +22,9 @@ SHORT_NO_RE = re.compile(r"^\s*(нет|no)\b[\s,.!]*(спасибо|не нуж�
 BOUNCE_FROM = ("mailer-daemon", "postmaster", "mail delivery")
 BOUNCE_SUBJ = re.compile(r"undeliver|delivery status|delivery failure|returned mail|failure notice|"
                          r"не доставлен|недоставлен|не удалось доставить", re.I)
+# автоматические письма (уведомления сервисов, рассылки) — не ответы клиентов
+AUTO_FROM = re.compile(r"(no-?reply|do-?not-?reply|notification|notify|newsletter|accounts\.google\.com|"
+                       r"mail-noreply|robot@|info@accounts\.)", re.I)
 QUOTE_START = re.compile(r"^(>|-{2,}|_{5,}|.*(написал|написала|wrote|пишет)\s*:?\s*$|.*<[^<>@\s]+@[^<>\s]+>\s*:\s*$|From:|От:)", re.I)
 
 
@@ -85,6 +88,10 @@ def classify(msg: email.message.Message) -> dict:
             re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", text)
         return {"kind": "bounce", "from": sender, "subject": subject,
                 "failed": (m.group(1) if m.lastindex else m.group(0)).strip("<>;,.").lower() if m else ""}
+    auto = (msg.get("Auto-Submitted", "no").lower() not in ("", "no") or msg.get("List-Unsubscribe")
+            or msg.get("Precedence", "").lower() in ("bulk", "list", "junk") or AUTO_FROM.search(sender))
+    if auto:
+        return {"kind": "auto", "from": sender, "subject": subject}
     reply = fresh_part(text)
     refused = subject.lower().startswith("unsubscribe") or REFUSAL_RE.search(reply[:300]) or SHORT_NO_RE.match(reply[:60])
     kind = "refusal" if refused else "reply"

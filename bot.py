@@ -444,7 +444,7 @@ class Bot:
                 f"Отправка: {'⏸ на паузе (/resume)' if self.st['paused'] else '▶️ работает'}\n"
                 f"Почта: {'настроена' if self.cfg.get('smtp') else 'не настроена (config.json → smtp)'}\n"
                 f"PDF с демо: {'работает' if demo_pdf.available() else 'нет браузера на сервере'}\n"
-                f"Демо-страницы: {self.demo_url or 'не настроены (config.json → demo)'}\n"
+                f"Ссылки на демо: {self.demo_url if self.demo_link({'demo': 'x'}) else 'выключены (нужен домен; демо уходят в PDF)'}\n"
                 f"Расписание: {(sched.get('time') + ', ' + '; '.join(sched['searches'])) if sched.get('searches') else 'нет'}\n"
                 f"Кандидаты: отправлено {statuses.count('sent')}, ответили {statuses.count('replied')}, "
                 f"отказались {statuses.count('refused')}")
@@ -691,8 +691,8 @@ class Bot:
         me = (self.cfg.get("smtp", {}).get("from") or self.cfg.get("smtp", {}).get("user") or "").lower()
         for uid, ev in events:
             seen.add(uid)
-            if ev.get("from") == me:
-                continue  # собственные письма (например, /testmail) — не ответы клиентов
+            if ev.get("from") == me or ev["kind"] == "auto":
+                continue  # свои письма (например, /testmail) и автоматические уведомления — не ответы клиентов
             if ev["kind"] == "bounce":
                 with self.lock:
                     self.st["bounces_today"] = {today: self.st["bounces_today"].get(today, 0) + 1}

@@ -144,6 +144,14 @@ class Mail(unittest.TestCase):
         self.assertEqual(mailer.classify(make_msg("a@b.ru", "Re", "Добрый день, нам не интересно"))["kind"], "refusal")
         self.assertEqual(mailer.classify(make_msg("a@b.ru", "Re", "Нет проблем, давайте созвонимся"))["kind"], "reply")
         self.assertEqual(mailer.classify(make_msg("a@b.ru", "unsubscribe", ""))["kind"], "refusal")
+        self.assertEqual(mailer.classify(make_msg("Google <no-reply@accounts.google.com>", "Оповещение системы безопасности",
+                                                  "Создан пароль приложения"))["kind"], "auto")
+        news = make_msg("Магазин <shop@example.ru>", "Скидки", "Купите")
+        news["List-Unsubscribe"] = "<mailto:x@example.ru>"
+        self.assertEqual(mailer.classify(news)["kind"], "auto")
+        robot = make_msg("bot@service.ru", "Уведомление", "текст")
+        robot["Auto-Submitted"] = "auto-generated"
+        self.assertEqual(mailer.classify(robot)["kind"], "auto")
         bounce = mailer.classify(make_msg("Mail Delivery Subsystem <mailer-daemon@yandex.ru>", "Недоставленное сообщение",
                                           "Final-Recipient: rfc822; info@dead.ru\nStatus: 5.1.1"))
         self.assertEqual((bounce["kind"], bounce["failed"]), ("bounce", "info@dead.ru"))

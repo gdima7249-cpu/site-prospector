@@ -227,6 +227,11 @@ class Scoring(unittest.TestCase):
         dead = p.Audit(input="x", domain="x.ru", error="заглушка: домен продаётся или сайт не работает")
         s2, r2, k2 = leads.lead_score(self.nb(name="В", site="x.ru", phone="1"), dead, "mid")
         self.assertEqual(k2, "dead_site")
+        s_net, r_net, k_net = leads.lead_score(self.nb(name="Д", site="x.ru", phone="1"),
+                                               p.Audit(input="x", domain="x.ru", error="ConnectionError"), "mid")
+        self.assertEqual(k_net, "dead_site")
+        self.assertIn("проверьте с телефона", r_net[0])
+        self.assertLess(s_net, s2)  # сетевая ошибка весит меньше, чем настоящий ответ «ошибка»/«заглушка»
         robots = p.Audit(input="x", domain="x.ru", error="robots.txt запрещает обход")
         self.assertEqual(leads.lead_score(self.nb(name="Г", site="x.ru", phone="1"), robots, "mid")[2], "unknown")
 

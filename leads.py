@@ -415,8 +415,13 @@ def lead_score(b: dict, a: p.Audit | None, tier: str) -> tuple[int, list[str], s
         score += 45
         reasons.append("нет сайта")
     elif kind == "dead_site":
-        score += 40
-        reasons.append(f"сайт не работает ({a.error})")
+        if a.error.startswith(("сайт отвечает ошибкой", "заглушка")):
+            score += 40
+            reasons.append(f"сайт не работает ({a.error})")
+        else:
+            # сетевая ошибка: сайт мог заблокировать зарубежный адрес сервера — это ещё не значит, что он не работает
+            score += 20
+            reasons.append(f"сайт не открылся с сервера ({a.error}) — проверьте с телефона")
     elif kind == "site":
         site_pts = 0
         for k in sorted(a.issues, key=lambda k: -VISIBLE.get(k, (0, ""))[0]):

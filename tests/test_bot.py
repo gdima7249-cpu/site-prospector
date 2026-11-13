@@ -351,6 +351,10 @@ class BotTests(unittest.TestCase):
             n = len(self.out)
             self.b.check_inbox()
         self.assertEqual(len(self.out), n)  # своё письмо — не «ответ клиента»
+        with mock.patch.object(bot.mailer, "fetch_new", return_value=[("10", {"kind": "auto", "from": "no-reply@accounts.google.com",
+                                                                             "subject": "Оповещение"})]):
+            self.b.check_inbox()
+        self.assertEqual(len(self.out), n)  # уведомления Google — тоже не ответы
 
     def test_schedule(self):
         self.b.handle(1, 42, "/start")
@@ -369,7 +373,7 @@ class BotTests(unittest.TestCase):
     def test_status_and_niches(self):
         self.b.handle(1, 42, "/status")
         self.assertIn("Сегодня отправлено: 0 из 20", self.last)
-        self.assertIn("http://1.2.3.4:8080", self.last)
+        self.assertIn("Ссылки на демо: http://1.2.3.4:8080", self.last)
         self.b.handle(1, 42, "/niches")
         self.assertIn("кузовной ремонт 🖼", self.last)
         self.b.handle(1, 42, "/addniche Натяжные потолки люкс: потолк, натяжн | high")
