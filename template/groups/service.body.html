@@ -1,0 +1,86 @@
+  <style>
+    /* Бытовые услуги, заказы, гостиницы: «визитка» — слева закреплённая карточка с телефоном и часами, справа содержимое */
+    :root { --bg: #fbf7f0; --surface: #ffffff; --fg: #2a2320; --muted: #6f655e; --line: #ebe2d6; --accent: #e8902f; --on-accent: #fff;
+      --radius: 14px; --display: "Inter Tight", "Inter", system-ui, sans-serif; }
+    .layout { display: grid; grid-template-columns: 380px 1fr; gap: 0; min-height: 100vh; }
+    .side { position: sticky; top: 0; align-self: start; height: 100vh; background: var(--fg); color: #fff; padding: 36px 32px; display: grid; grid-template-rows: auto 1fr auto; gap: 28px; }
+    .side .brand { font: 800 26px/1.1 var(--display); text-decoration: none; }
+    .side .what { color: #c9bfb6; margin-top: 8px; font-size: 15px; }
+    .side .contact { display: grid; gap: 16px; align-content: center; }
+    .side .phone { font: 800 28px/1.1 var(--display); text-decoration: none; }
+    .side dl { margin: 0; display: grid; gap: 12px; font-size: 15px; }
+    .side dt { color: #a99e95; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; } .side dd { margin: 2px 0 0; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 52px; padding: 0 24px; border-radius: var(--radius); text-decoration: none; font-weight: 700; border: 1px solid var(--line); background: var(--surface); }
+    .btn--accent { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+    .side .btn { width: 100%; }
+    .side .btn:not(.btn--accent) { background: transparent; color: #fff; border-color: #4d4440; }
+    .side nav { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 14px; color: #c9bfb6; } .side nav a { text-decoration: none; }
+    .main { min-width: 0; }
+    .hero { padding: 72px 56px 56px; border-bottom: 1px solid var(--line); background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, var(--bg)), var(--bg) 60%); }
+    .kicker { color: var(--muted); font-size: 14px; }
+    .hero h1 { font: 900 clamp(40px, 5.6vw, 80px)/.98 var(--display); letter-spacing: -.035em; margin-top: 16px; }
+    .hero h1 span { display: block; color: var(--accent); }
+    .lead { margin-top: 18px; color: var(--muted); font-size: 19px; max-width: 46ch; }
+    .facts { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+    .fact { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; display: grid; }
+    .fact b { font-weight: 700; } .fact span { color: var(--muted); font-size: 13px; }
+    section.block { padding: 56px; border-bottom: 1px solid var(--line); }
+    .eyebrow { color: var(--accent); font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; }
+    h2 { font: 800 clamp(28px, 3.4vw, 40px)/1.1 var(--display); letter-spacing: -.02em; margin: 10px 0 28px; }
+    .services { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .svc { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; display: grid; grid-template-columns: 28px 1fr; gap: 4px 12px; align-items: start; }
+    .svc__n { grid-row: span 2; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: transparent; position: relative; overflow: hidden; }
+    .svc__n::after { content: ""; position: absolute; left: 9px; top: 6px; width: 7px; height: 12px; border: solid var(--on-accent); border-width: 0 3px 3px 0; transform: rotate(45deg); }
+    .svc__t { font: 700 18px/1.3 var(--display); } .svc__p { color: var(--muted); font-size: 14px; }
+    .steps { display: grid; gap: 0; }
+    .step { display: grid; grid-template-columns: 64px 1fr; gap: 2px 16px; padding: 20px 0; border-top: 1px dashed var(--line); }
+    .step__n { grid-row: span 2; font: 900 40px/1 var(--display); color: var(--accent); }
+    .step h3 { font: 700 20px/1.2 var(--display); } .step p { color: var(--muted); }
+    .rating__box { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; }
+    .rating__num { font: 900 80px/1 var(--display); }
+    .rating__stars { color: var(--accent); font-size: 22px; letter-spacing: 4px; } .rating p { color: var(--muted); max-width: 50ch; margin-top: 6px; }
+    .rating .wrap, .contacts .wrap { padding: 0; max-width: none; }
+    .contacts .mapwrap { border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); height: 360px; }
+    footer { padding: 28px 56px 40px; color: var(--muted); font-size: 14px; }
+    @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } .side { position: static; height: auto; grid-template-rows: none; padding: 24px 20px; }
+      .side nav { display: none; } .hero, section.block { padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); }
+      .hero { padding-top: 40px; } section.block { padding-block: 44px; } footer { padding-inline: 20px; } .services { grid-template-columns: 1fr; } }
+  </style>
+</head>
+$top
+<div class="layout">
+  <aside class="side" aria-label="Контакты">
+    <div><a class="brand" href="#top">$name</a><p class="what">$what</p></div>
+    <div class="contact">
+      <a class="phone" href="$phone_href">$phone_text</a>
+      <span class="open" data-open-status>$hours_short</span>
+      <dl><div><dt>Адрес</dt><dd>$address</dd></div><div><dt>Режим</dt><dd>$hours_text</dd></div></dl>
+      <a class="btn btn--accent" href="$phone_href">Позвонить</a>
+      <a class="btn" href="$route_href" target="_blank" rel="noopener">Построить маршрут</a>
+    </div>
+    <nav aria-label="Меню"><a href="#services">Услуги</a><a href="#how">Как заказать</a>$nav_rating<a href="#contacts">Карта</a></nav>
+  </aside>
+  <main class="main" id="main">
+    <section class="hero" id="top">
+      <p class="kicker">$kicker</p>
+      <h1>$hero_head<span>$hero_rest</span></h1>
+      <p class="lead">$lead</p>
+      <ul class="facts">$facts</ul>
+    </section>
+    <section class="block" id="services">
+      <p class="eyebrow">Услуги</p><h2>Что мы делаем</h2>
+      <ul class="services">$services</ul>
+      <p class="demo-note" style="margin-top:20px">Цены появятся на сайте после согласования с вами. Сейчас — уточняйте по телефону.</p>
+    </section>
+    <section class="block" id="how">
+      <p class="eyebrow">Как заказать</p><h2>Три шага</h2>
+      <ol class="steps">$steps</ol>
+    </section>
+    $rating_block
+    <section class="block contacts" id="contacts">
+      <p class="eyebrow">Карта</p><h2>Как нас найти</h2>
+      <div class="mapwrap"><iframe class="map" title="$name на карте" src="$map_src" loading="lazy"></iframe></div>
+    </section>
+    <footer>$footer_line · Демо-концепт сайта · © <span data-year>2026</span></footer>
+  </main>
+</div>

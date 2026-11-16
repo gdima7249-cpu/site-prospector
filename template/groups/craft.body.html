@@ -1,0 +1,88 @@
+  <style>
+    /* Ремонт и стройка: светлый «бетон», чёрные плашки, крупный жирный текст капсом, сетка как на чертеже */
+    :root { --bg: #efeeea; --surface: #ffffff; --fg: #151515; --muted: #5f5d58; --line: #d6d3cc; --ink: #151515; --accent: #e8902f; --on-accent: #151515;
+      --radius: 4px; --display: "Inter Tight", "Inter", system-ui, sans-serif; --callbar-bg: rgba(239,238,234,.95); }
+    .hdr { background: var(--ink); color: #fff; }
+    .hdr .wrap { display: flex; align-items: center; gap: 20px; min-height: 64px; }
+    .brand { font: 800 18px/1.1 var(--display); text-transform: uppercase; letter-spacing: .02em; text-decoration: none; min-width: 0; }
+    .brand::before { content: ""; display: inline-block; width: 12px; height: 12px; background: var(--accent); margin-right: 10px; }
+    .nav { margin-left: auto; display: flex; gap: 22px; font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: #bbb; }
+    .nav a { text-decoration: none; } .nav a:hover { color: #fff; }
+    .hdr__phone { font: 700 18px/1 var(--display); text-decoration: none; white-space: nowrap; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 54px; padding: 0 26px; border-radius: var(--radius);
+      font: 700 15px/1 var(--display); text-transform: uppercase; letter-spacing: .06em; text-decoration: none; border: 2px solid currentColor; }
+    .btn--accent { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+    .hero { background: var(--ink) linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px) 0 0 / 48px 48px; color: #fff; padding: 64px 0 0; }
+    .kicker { display: inline-block; background: var(--accent); color: var(--on-accent); font: 700 13px/1 var(--display); text-transform: uppercase; letter-spacing: .08em; padding: 8px 10px; }
+    .hero h1 { font: 900 clamp(44px, 8.5vw, 116px)/.9 var(--display); text-transform: uppercase; letter-spacing: -.02em; margin-top: 26px; }
+    .hero h1 span { display: block; color: transparent; -webkit-text-stroke: 2px #fff; }
+    .lead { margin-top: 26px; font-size: 19px; color: #cfcfcf; max-width: 50ch; }
+    .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+    .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 56px; border-top: 1px solid #333; }
+    .fact { padding: 22px 24px 26px 0; display: grid; gap: 4px; }
+    .fact + .fact { padding-left: 24px; border-left: 1px solid #333; }
+    .fact b { font: 800 22px/1.15 var(--display); } .fact span { color: #9a9a9a; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
+    section.block { padding: 80px 0; }
+    .eyebrow { font: 700 13px/1 var(--display); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); display: flex; align-items: center; gap: 10px; }
+    .eyebrow::before { content: ""; width: 28px; height: 3px; background: var(--accent); }
+    h2 { font: 900 clamp(34px, 5vw, 64px)/.95 var(--display); text-transform: uppercase; letter-spacing: -.02em; margin: 16px 0 40px; }
+    .services { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px; background: var(--line); border: 2px solid var(--line); }
+    .svc { background: var(--surface); padding: 30px 28px; display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; align-items: baseline; }
+    .svc__n { grid-row: span 2; font: 900 44px/1 var(--display); color: var(--accent); }
+    .svc__t { font: 800 22px/1.15 var(--display); text-transform: uppercase; }
+    .svc__p { color: var(--muted); font-size: 14px; }
+    .how { background: var(--surface); }
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; }
+    .step { padding: 28px 28px 28px 0; display: grid; gap: 12px; align-content: start; position: relative; }
+    .step + .step { padding-left: 28px; border-left: 2px dashed var(--line); }
+    .step__n { font: 900 64px/1 var(--display); color: var(--fg); }
+    .step h3 { font: 800 22px/1.1 var(--display); text-transform: uppercase; }
+    .step p { color: var(--muted); }
+    .rating__box { display: flex; flex-wrap: wrap; align-items: center; gap: 28px; background: var(--ink); color: #fff; padding: 32px; }
+    .rating__num { font: 900 96px/1 var(--display); color: var(--accent); }
+    .rating__stars { font-size: 24px; letter-spacing: 4px; color: var(--accent); }
+    .rating p { color: #bdbdbd; max-width: 52ch; margin-top: 6px; }
+    .contacts .grid { display: grid; grid-template-columns: 1fr 1.3fr; border: 2px solid var(--ink); }
+    .contacts .info { background: var(--ink); color: #fff; padding: 36px; display: grid; gap: 16px; align-content: start; }
+    .contacts .info a.big { font: 900 clamp(28px, 3.4vw, 40px)/1 var(--display); text-decoration: none; }
+    .contacts .info p { color: #cfcfcf; }
+    footer { background: var(--ink); color: #9a9a9a; padding: 28px 0 40px; font-size: 14px; }
+    footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+    @media (max-width: 860px) { .nav { display: none; } .hdr__phone { margin-left: auto; font-size: 16px; } .services, .steps, .contacts .grid { grid-template-columns: 1fr; }
+      .step + .step { padding-left: 0; border-left: 0; border-top: 2px dashed var(--line); } .fact + .fact { padding-left: 0; border-left: 0; border-top: 1px solid #333; } }
+  </style>
+</head>
+$top
+<header class="hdr"><div class="wrap">
+  <a class="brand" href="#top">$name</a>
+  <nav class="nav" aria-label="Меню"><a href="#services">Работы</a><a href="#how">Как работаем</a>$nav_rating<a href="#contacts">Контакты</a></nav>
+  <a class="hdr__phone" href="$phone_href">$phone_text</a>
+</div></header>
+<main id="main">
+<section class="hero" id="top"><div class="wrap">
+  <p class="kicker">$kicker</p>
+  <h1>$hero_head<span>$hero_rest</span></h1>
+  <p class="lead">$lead</p>
+  <div class="cta"><a class="btn btn--accent" href="$phone_href">Узнать стоимость</a><a class="btn" href="$route_href" target="_blank" rel="noopener">Где мы</a></div>
+  <ul class="facts">$facts</ul>
+</div></section>
+<section class="block" id="services"><div class="wrap">
+  <p class="eyebrow">Работы</p><h2>Что делаем</h2>
+  <ul class="services">$services</ul>
+  <p class="demo-note" style="margin-top:24px">Здесь будут фото ваших объектов и цены «от». Сейчас — уточняйте по телефону.</p>
+</div></section>
+<section class="block how" id="how"><div class="wrap">
+  <p class="eyebrow">Порядок работы</p><h2>Как работаем</h2>
+  <ol class="steps">$steps</ol>
+</div></section>
+$rating_block
+<section class="block contacts" id="contacts"><div class="wrap">
+  <p class="eyebrow">Контакты</p><h2>Звоните</h2>
+  <div class="grid">
+    <div class="info"><a class="big" href="$phone_href">$phone_text</a><p>$address</p><p><span class="open" data-open-status>$hours_short</span><br>$hours_text</p>
+      <a class="btn btn--accent" href="$route_href" target="_blank" rel="noopener">Построить маршрут</a></div>
+    <iframe class="map" title="$name на карте" src="$map_src" loading="lazy"></iframe>
+  </div>
+</div></section>
+</main>
+<footer><div class="wrap"><span>$footer_line</span><span>Демо-концепт сайта · © <span data-year>2026</span></span></div></footer>
