@@ -59,6 +59,7 @@ HELP = """Напишите нишу и город, например:
 
 Команды:
 /status — сколько писем отправлено сегодня, пауза, расписание
+/scan — запустить обход ниш и городов сейчас, не дожидаясь расписания (те же лимиты)
 /pause и /resume — остановить и возобновить отправку
 /testmail — пробное письмо на ваш ящик (проверка почты)
 /draft 3 — черновик письма для кандидата №3 из последнего поиска
@@ -317,6 +318,7 @@ class Bot:
         self.seen = load_seen(self.st)
         self.cfg = config if config is not None else load_config()
         self.busy = threading.Lock()
+        self.sched_lock = threading.Lock()  # обход по расписанию и /scan не идут одновременно
         self.lock = threading.RLock()
         self.send_lock = threading.Lock()
         demo = self.cfg.get("demo", {})
@@ -422,6 +424,8 @@ class Bot:
             return self.apply_edit(chat, text)
         if cmd in ("/start", "/help"):
             return self.say(chat, HELP)
+        if cmd == "/scan":
+            return spawn(self.scan_now, chat)
         if cmd == "/status":
             return self.say(chat, self.status_text())
         if cmd == "/testmail":
@@ -863,12 +867,30 @@ class Bot:
             return False
         self.st["last_auto"] = day
         self.save()
+        with self.sched_lock:
+            self.run_batch(self.st["owner_chat"], queries, "⏰ Поиск по расписанию")
+        return True
+
+    def scan_now(self, chat: int):
+        """/scan — тот же обход, что по расписанию, но сейчас: с места, где остановился, с теми же лимитами
+        (max_cards, max_searches, лимиты API). Ежедневный запуск по расписанию при этом не отменяется."""
+        queries = self.schedule_queries()
+        if not queries:
+            return self.say(chat, "Расписание не настроено: в config.json нет раздела schedule.")
+        if not self.sched_lock.acquire(blocking=False):
+            return self.say(chat, "Обход уже идёт — дождитесь сводки в конце.")
+        try:
+            self.run_batch(chat, queries, "🔎 Обход по команде /scan")
+        finally:
+            self.sched_lock.release()
+
+    def run_batch(self, chat: int, queries: list[str], title: str):
+        sched = self.cfg.get("schedule", {})
         leads.set_api_limits(self.cfg.get("limits", {}).get("api_per_day"))
-        chat = self.st["owner_chat"]
         left = int(sched.get("max_cards", 20))
-        max_searches = int(sched.get("max_searches", 40))  # не перебирать за день тысячи запросов, если карточек мало
+        max_searches = int(sched.get("max_searches", 40))  # не перебирать за раз тысячи запросов, если карточек мало
         pos = self.st.get("sched_pos", 0) % len(queries)
-        self.say(chat, f"⏰ Поиск по расписанию: начинаю с «{queries[pos]}» ({pos + 1}-й из {len(queries)} запросов).")
+        self.say(chat, f"{title}: начинаю с «{queries[pos]}» ({pos + 1}-й из {len(queries)} запросов).")
         niches = leads.load_niches()
         done = cards = failed_in_row = 0
         errors = []
@@ -889,10 +911,10 @@ class Bot:
                 failed_in_row += 1
                 errors.append(f"{q}: {err}")
                 if failed_in_row >= 3:
-                    # источники лежат — не прожигаем очередь: эти запросы повторим завтра
+                    # источники лежат — не прожигаем очередь: эти запросы повторим в следующий раз
                     pos = (pos - (failed_in_row - 1)) % len(queries)
                     done -= failed_in_row - 1
-                    errors.append("три запроса подряд без ответа источников — остальное завтра")
+                    errors.append("три запроса подряд без ответа источников — остальное в следующий раз (с того же места)")
                     break
             else:
                 failed_in_row = 0
@@ -904,12 +926,11 @@ class Bot:
             self.save()
         self.st["sched_pos"] = pos
         self.save()
-        summary = (f"Готово: {done} запросов, {cards} карточек. Следующий запрос завтра — «{queries[pos]}» "
+        summary = (f"Готово: {done} запросов, {cards} карточек. Следующий запрос — «{queries[pos]}» "
                    f"({pos + 1}-й из {len(queries)}).")
         if errors:
             summary += "\nНе получилось: " + "; ".join(errors[:5]) + (f" и ещё {len(errors) - 5}" if len(errors) > 5 else "")
         self.say(chat, summary)
-        return True
 
 
 def get_token() -> str:
