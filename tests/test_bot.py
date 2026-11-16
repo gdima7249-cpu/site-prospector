@@ -588,8 +588,32 @@ class BotTests(unittest.TestCase):
         with mock.patch.object(leads, "find_businesses", side_effect=leads.MapError("Overpass перегружен")):
             self.b.run_schedule_if_due(datetime(2026, 11, 10, 9, 0, tzinfo=tz))
         self.assertEqual(self.b.st["sched_pos"], 0)
-        self.assertIn("остальное завтра", self.last)
+        self.assertIn("остальное в следующий раз", self.last)
         self.assertEqual(bot.time.sleep.call_count, 2)  # пауза между запросами к картам
+
+    def test_scan_now(self):
+        """/scan — обход сейчас, с места остановки и с теми же лимитами; расписание на сегодня не отменяет."""
+        self.b.cfg["schedule"] = {"time": "09:00", "tz": "Europe/Moscow", "max_cards": 5, "max_searches": 2,
+                                  "niches": ["автосервис", "шиномонтаж"], "cities": ["Омск", "Тула"]}
+        calls = []
+
+        def fake_search(chat, niche, city, limit, quiet=False):
+            calls.append((f"{niche} {city}", limit, quiet))
+            self.b.busy.release()
+            return 0
+        with mock.patch.object(self.b, "search", side_effect=fake_search):
+            self.b.handle(1, 42, "/scan")
+            self.assertEqual(calls, [("автосервис Омск", 5, True), ("шиномонтаж Омск", 5, True)])
+            self.assertIn("Следующий запрос — «автосервис Тула»", self.last)
+            self.assertTrue(self.b.run_schedule_if_due(datetime(2026, 11, 10, 9, 0, tzinfo=ZoneInfo("Europe/Moscow"))))
+            self.assertEqual(calls[2][0], "автосервис Тула")  # расписание продолжает с того же места
+            self.b.sched_lock.acquire()
+            self.b.handle(1, 42, "/scan")  # обход уже идёт — второй не запускается
+            self.assertIn("Обход уже идёт", self.last)
+            self.b.sched_lock.release()
+        self.assertEqual(len(calls), 4)
+        self.b.handle(1, 99, "/scan")  # чужим бот не отвечает
+        self.assertEqual(len(calls), 4)
 
     def test_telegram_retry(self):
         b = bot.Bot("TOKEN", json.loads(json.dumps(CONFIG)))
