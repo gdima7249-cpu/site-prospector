@@ -20,9 +20,11 @@ import hashlib
 import io
 import json
 import os
+import re
 import sys
 import threading
 import time
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime
@@ -81,7 +83,7 @@ def load_state() -> dict:
     except (OSError, ValueError):
         st = {}
     defaults = {"owner": None, "owner_chat": None, "offset": 0, "seen": [], "skip": [], "last": [], "leads": {},
-                "sent_today": {}, "bounces_today": {}, "paused": False, "pending_edit": None, "last_auto": "",
+                "sent_today": {}, "bounces_today": {}, "paused": False, "pending_edit": None, "pending_mail": None, "last_auto": "",
                 "mail_seen": [], "last_send_ts": 0}
     for k, v in defaults.items():
         st.setdefault(k, v)
@@ -154,6 +156,8 @@ def build_leads(businesses: list[dict], audits: dict[str, p.Audit], tier: str, c
         a = audits.get(b["domain"]) if b["domain"] else None
         if b["site"] and a is None:
             continue  # сайт есть, но не проверяли (сверх лимита) — оценивать вслепую не будем
+        if b.get("domain") and a and not a.ok and b.get("site_found") == "по телефону на сайте":
+            continue  # угаданный домен уже не открывается — не считаем это сайтом компании
         if a and a.emails and not b["email"]:
             b = dict(b, email=a.emails[0])
         score, reasons, kind = leads.lead_score(b, a, tier)
@@ -172,19 +176,30 @@ def format_lead(i: int, L: dict) -> str:
     b = L["b"]
     head = f"{i}. {b['name']}"
     head += f" — {b['domain']}" if b["domain"] else ""
-    if L["kind"] != "site":
+    if L["kind"] == "no_site" and not leads.no_site_confirmed(b):
+        head += " · 🚫 сайта нет в OpenStreetMap"
+    elif L["kind"] != "site":
         head += f" · {KIND_ICON[L['kind']]}"
     lines = [head, f"   приоритет {L['score']}/100: {', '.join(L['reasons']) or 'мелкие недочёты'}",
              f"   💰 {L['price']}"]
+    if b.get("site_found"):
+        lines.append(f"   🔗 сайта не было в OpenStreetMap, нашёл: {b['site_found']}")
     contacts = []
     if b["email"]:
         contacts.append(b["email"])
-    if b["phone"]:
-        contacts.append("тел. " + b["phone"].split(";")[0].strip())
+    ph = leads.phones(b["phone"])
+    if ph:
+        contacts.append("тел. " + ph[0]["text"] + (" (мобильный)" if ph[0]["mobile"] else ""))
     lines.append("   ✉ " + (", ".join(contacts) or "контактов не нашёл"))
     if b.get("rating") is not None:
         lines.append(f"   ★ {b['rating']} · {b.get('reviews') or 0} отзывов ({', '.join(b['sources'])})")
+    if L["kind"] == "no_site" and not leads.no_site_confirmed(b):
+        lines.append("   🔎 проверьте, нет ли сайта: " + search_link(b, L.get("city", "")))
     return "\n".join(lines)
+
+
+def search_link(b: dict, city: str) -> str:
+    return "https://yandex.ru/search/?text=" + urllib.parse.quote(f"{b['name']} {city}".strip())
 
 
 def csv_bytes(rows: list[dict]) -> bytes:
@@ -268,11 +283,54 @@ def make_draft(L: dict, demo_url: str | None = None, pdf: bool = False) -> dict:
     return {"to": to, "subject": subject, "body": body}
 
 
+LETTER_DEFAULTS = {  # если в letter.txt на сервере ещё нет этих частей (его правили до обновления)
+    "whatsapp": "Здравствуйте! Меня зовут {моё_имя}, я делаю сайты. Нашёл «{компания}» на карте и заметил, что "
+                "{проблема}. {демо_коротко} Если интересно, расскажу подробнее.",
+    "звонок": "Здравствуйте! Меня зовут {моё_имя}, я делаю сайты. Нашёл «{компания}» на карте и заметил, что "
+              "{проблема}. Я подготовил, как мог бы выглядеть ваш сайт. Можно прислать вам на почту или в WhatsApp? "
+              "Подскажите адрес.",
+    "демо коротко: ссылка": "Сделал пример, как может выглядеть ваш сайт: {ссылка}",
+    "демо коротко: pdf": "Сделал пример, как может выглядеть ваш сайт, — пришлю следующим сообщением.",
+    "демо коротко: нет": "Могу бесплатно сделать пример, как может выглядеть ваш сайт.",
+}
+
+
+def short_text(L: dict, kind: str, demo_url: str | None = None, pdf: bool = False) -> str:
+    """Короткий текст для WhatsApp (kind="whatsapp") или подсказка для звонка (kind="звонок")."""
+    t = {**LETTER_DEFAULTS, **load_letter()}
+    demo = t["демо коротко: ссылка"] if demo_url else t["демо коротко: pdf"] if pdf else t["демо коротко: нет"]
+    text = t[kind]
+    for k, v in (("{демо_коротко}", demo), ("{проблема}", t.get(problem_key(L), "")), ("{ссылка}", demo_url or ""),
+                 ("{компания}", L["b"]["name"]), ("{моё_имя}", sender_info().get("name", ""))):
+        text = text.replace(k, v)
+    return text.strip()
+
+
+def no_email_help(L: dict, demo_url: str | None = None, pdf: bool = False) -> tuple[str, list[tuple[str, str]]]:
+    """Что делать, если email нет: текст для WhatsApp или для звонка и кнопки (WhatsApp, ввести почту)."""
+    ph = leads.phones(L["b"]["phone"])
+    buttons = [("✉️ Ввести почту", f"mail:{L['id']}")]
+    if not ph:
+        return "Email и телефона нет — написать некуда.", buttons
+    nums = ", ".join(x["text"] for x in ph[:3])
+    mobile = next((x for x in ph if x["mobile"]), None)
+    if mobile:
+        buttons.insert(0, ("💬 WhatsApp", f"https://wa.me/{mobile['intl']}"))
+        head = (f"Email нет. Мобильный {mobile['text']} — нажмите «💬 WhatsApp» и вставьте текст "
+                f"(если у них нет WhatsApp, позвоните: {nums}):")
+        return f"{head}\n\n{short_text(L, 'whatsapp', demo_url, pdf)}", buttons
+    head = f"Email нет, мобильного тоже. Позвоните: {nums}. Что сказать:"
+    tail = "\n\nЕсли дадут почту — нажмите «✉️ Ввести почту», и письмо уйдёт туда."
+    return f"{head}\n\n{short_text(L, 'звонок', demo_url, pdf)}{tail}", buttons
+
+
 def draft_text(L: dict, demo_url: str | None = None) -> str:
     d = make_draft(L, demo_url)
-    b = L["b"]
-    to = d["to"] or (f"нет email — напишите в WhatsApp/Telegram или позвоните: {b['phone']}" if b["phone"] else "контактов нет")
-    return f"Кому: {to}\nТема: {d['subject']}\n\n{d['body']}"
+    to = d["to"] or "нет email (текст для WhatsApp или звонка — ниже)"
+    text = f"Кому: {to}\nТема: {d['subject']}\n\n{d['body']}"
+    if not d["to"]:
+        text += "\n\n" + no_email_help(L, demo_url)[0]
+    return text
 
 
 def spawn(target, *args):
@@ -281,7 +339,9 @@ def spawn(target, *args):
 
 
 def kb(*rows: list[tuple[str, str]]) -> str:
-    return json.dumps({"inline_keyboard": [[{"text": t, "callback_data": c} for t, c in row] for row in rows]},
+    """Кнопки: (текст, действие). Действие, начинающееся с https://, — кнопка-ссылка."""
+    return json.dumps({"inline_keyboard": [[{"text": t, "url": c} if c.startswith("https://") else
+                                            {"text": t, "callback_data": c} for t, c in row] for row in rows]},
                       ensure_ascii=False)
 
 
@@ -420,6 +480,8 @@ class Bot:
         self.st["owner_chat"] = chat
         self.save()
         cmd, _, arg = text.partition(" ")
+        if self.st["pending_mail"] and not text.startswith("/"):
+            return self.apply_mail(chat, text)
         if self.st["pending_edit"] and not text.startswith("/"):
             return self.apply_edit(chat, text)
         if cmd in ("/start", "/help"):
@@ -550,7 +612,10 @@ class Bot:
             n_site = sum(1 for b in fresh if b["site"])
             if not quiet:
                 self.say(chat, f"Нашёл {len(fresh)} новых компаний ({'; '.join(notes)}): {n_site} с сайтом, "
-                               f"{len(fresh) - n_site} без. Проверяю сайты, это пара минут.")
+                               f"{len(fresh) - n_site} без. Перепроверяю тех, у кого нет сайта, и проверяю сайты — "
+                               "это пара минут.")
+            # «нет сайта» только по OpenStreetMap — часто просто незаполненное поле: ищем сайт в других местах
+            fresh = [b for b in leads.verify_no_site(fresh, city) if leads.keep(b, skip)]
             audits = audit_sites(fresh)
             rows = build_leads(fresh, audits, niche.get("tier", "mid"), city)
             for L in rows:
@@ -636,6 +701,11 @@ class Bot:
             self.save()
             return self.say(chat, "Пришлите новый текст письма одним сообщением. Если первая строка начинается с "
                                   "«Тема:», она станет темой письма.")
+        if action == "mail":
+            self.st["pending_mail"] = i
+            self.st["pending_edit"] = None
+            self.save()
+            return self.say(chat, f"Пришлите email «{L['b']['name']}» одним сообщением (например, узнали по телефону).")
         if action == "cancel":
             L["status"] = "cancelled"
             self.save()
@@ -697,7 +767,7 @@ class Bot:
         head = note + (f"🖼 Демо: {link}\nПроверьте его на телефоне перед отправкой.\n\n" if link else "")
         if self.pdf_path(L):
             head += "📎 К письму будет приложен PDF (он выше).\n\n"
-        to = d["to"] or "нет email — скопируйте текст и отправьте в WhatsApp/Telegram: " + (L["b"]["phone"] or "контактов нет")
+        to = d["to"] or "нет email — ниже текст для WhatsApp или звонка"
         text = f"{head}Кому: {to}\nТема: {d['subject']}\n\n{d['body']}"
         buttons = [("✏️ Изменить", f"edit:{L['id']}"), ("❌ Отмена", f"cancel:{L['id']}")]
         if d["to"] and self.cfg.get("smtp"):
@@ -705,6 +775,9 @@ class Bot:
         elif d["to"]:
             text += "\n\n(Почта для отправки не настроена — config.json → smtp. Пока отправьте вручную.)"
         self.say(chat, text, kb(buttons))
+        if not d["to"]:
+            help_text, extra = no_email_help(L, link, bool(self.pdf_path(L)))
+            self.say(chat, help_text, kb(extra))
 
     def apply_edit(self, chat: int, text: str):
         L = self.st["leads"].get(self.st["pending_edit"])
@@ -719,6 +792,22 @@ class Bot:
         L["draft"]["body"] = text
         self.save()
         self.show_draft(chat, L, "Текст обновил.\n\n")
+
+    def apply_mail(self, chat: int, text: str):
+        L = self.st["leads"].get(self.st["pending_mail"])
+        self.st["pending_mail"] = None
+        email = text.strip().lower()
+        if not L or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[a-zа-яё]{2,}", email):
+            self.save()
+            return self.say(chat, "Это не похоже на email. Нажмите «✉️ Ввести почту» ещё раз." if L else
+                            "Не нашёл, к какой компании относится почта.")
+        L["b"]["email"] = email
+        if L.get("draft"):
+            L["draft"]["to"] = email
+        else:
+            L["draft"] = make_draft(L, self.demo_link(L), pdf=bool(self.pdf_path(L)))
+        self.save()
+        self.show_draft(chat, L, f"Почту {email} записал.\n\n")
 
     # — отправка —
     def send_lead(self, chat: int, L: dict):

@@ -535,6 +535,187 @@ def find_businesses(niche_name: str, niche: dict, city: str) -> tuple[list[dict]
     return merge(groups), notes
 
 
+# ───────────────────────────── телефоны ─────────────────────────────
+# Мобильные коды: Россия +7 9xx; Казахстан +7 700–708, 747, 771, 775–778; Беларусь +375 25, 29, 33, 44.
+KZ_MOBILE = {"700", "701", "702", "705", "706", "707", "708", "747", "771", "775", "776", "777", "778"}
+BY_MOBILE = {"25", "29", "33", "44"}
+
+
+def phone_info(raw: str) -> dict:
+    """Один номер → {"text": как показать, "intl": цифры с кодом страны или "", "mobile": bool}.
+    Номер без кода города (меньше 10 цифр) не дополняем: код угадать нельзя (в Москве их два — 495 и 499)."""
+    raw = (raw or "").strip()
+    d = re.sub(r"\D", "", raw)
+    intl = ""
+    if d.startswith("375") and len(d) == 12:
+        intl = d
+    elif d.startswith("80") and len(d) == 11:  # Беларусь внутри страны: 8 0xx …; в России кодов на 0 нет
+        intl = "375" + d[2:]
+    elif len(d) == 11 and d[0] in "78":
+        intl = "7" + d[1:]
+    elif len(d) == 10 and d[0] != "0":
+        intl = "7" + d
+    if not intl:
+        return {"text": raw + (" (без кода города)" if 5 <= len(d) < 10 else ""), "intl": "", "mobile": False}
+    if intl.startswith("375"):
+        c, n = intl[3:5], intl[5:]
+        return {"text": f"+375 {c} {n[:3]}-{n[3:5]}-{n[5:]}", "intl": intl, "mobile": c in BY_MOBILE}
+    c, n = intl[1:4], intl[4:]
+    return {"text": f"+7 {c} {n[:3]}-{n[3:5]}-{n[5:]}", "intl": intl,
+            "mobile": c.startswith("9") or c in KZ_MOBILE}
+
+
+def phones(phone: str) -> list[dict]:
+    """Все номера компании, мобильные — первыми (на них можно написать в WhatsApp)."""
+    out = [phone_info(x) for x in re.split(r"[;,]", phone or "") if x.strip()]
+    return sorted(out, key=lambda x: (not x["mobile"], not x["intl"]))
+
+
+# ───────────────────────────── перепроверка «нет сайта» ─────────────────────────────
+# В OpenStreetMap у многих компаний просто не заполнено поле «сайт». Прежде чем сказать «нет сайта»,
+# бот ищет компанию в 2ГИС или Яндексе (если есть ключи) и пробует домены из названия — домен засчитывается,
+# только если на его странице есть телефон этой компании.
+DIRECTORIES = {"2ГИС", "Яндекс"}
+GUESS_MAX = 40     # сколько компаний без сайта проверять доменами за один поиск
+LOOKUP_MAX = 10    # сколько платных запросов к 2ГИС/Яндексу тратить на перепроверку за один поиск
+TRANSLIT = dict(zip("абвгдеёжзийклмнопрстуфхцчшщъыьэюя",
+                    ["a", "b", "v", "g", "d", "e", "e", "zh", "z", "i", "y", "k", "l", "m", "n", "o", "p", "r", "s",
+                     "t", "u", "f", "h", "ts", "ch", "sh", "sch", "", "y", "", "e", "yu", "ya"]))
+WORDS = {"плюс": "plus", "центр": "center", "стиль": "style", "сервис": "service", "клиника": "clinic",
+         "студия": "studio", "мастер": "master", "групп": "group", "дентал": "dental", "лайн": "line"}
+LEGAL = re.compile(r"\b(ооо|оао|зао|пао|ао|ип|тоо|одо|чуп)\b", re.I)
+TLDS = {"RU": ("ru", "com"), "KZ": ("kz", "com"), "BY": ("by", "com")}
+
+
+def city_country(city: str) -> str:
+    c = city.strip().lower()
+    try:
+        return next((x.get("country", "RU") for x in load_cities() if x["name"].lower() == c), "RU")
+    except (OSError, ValueError, KeyError):
+        return "RU"
+
+
+def name_slugs(name: str) -> list[str]:
+    """«Дентал плюс» → ["dentalplus", "dental-plus"]. Только из букв названия, без выдумок."""
+    s = LEGAL.sub(" ", name.lower().replace("ё", "е"))
+    s = re.sub(r"[«»\"'`.,!?()&+/\\]", " ", s)
+    words = []
+    for w in s.split():
+        w = WORDS.get(w, w)
+        w = "".join(TRANSLIT.get(ch, ch) for ch in w)
+        w = re.sub(r"[^a-z0-9-]", "", w).strip("-")
+        if w:
+            words.append(w)
+    if not words or len("".join(words)) < 4:
+        return []
+    joined = "".join(words)
+    return list(dict.fromkeys([joined, "-".join(words)]))[:2] if len(joined) <= 40 else []
+
+
+PHONE_RE = re.compile(r"\+?\d[\d\s\-‐-―()\xa0]{5,}\d")
+
+
+def page_has_phone(html: str, b: dict) -> bool:
+    """На странице есть хотя бы один номер компании (сравниваем последние 10 цифр, у коротких — 7)."""
+    want = set()
+    for x in re.split(r"[;,]", b.get("phone", "")):
+        d = re.sub(r"\D", "", x)
+        if len(d) >= 10:
+            want.add(d[-10:])
+        elif len(d) >= 7:
+            want.add(d[-7:])
+    if not want:
+        return False
+    for m in PHONE_RE.findall(html):
+        d = re.sub(r"\D", "", m)
+        if d[-10:] in want or d[-7:] in want:
+            return True
+    return False
+
+
+def guess_site(b: dict, country: str = "RU", timeout: int = 6) -> str:
+    """Пробует домены из названия; возвращает адрес, только если на странице есть телефон компании."""
+    for slug in name_slugs(b.get("name", "")):
+        for tld in TLDS.get(country, TLDS["RU"]):
+            url = f"http://{slug}.{tld}"
+            try:
+                r = requests.get(url, headers={"User-Agent": p.DEFAULT_UA}, timeout=timeout)
+            except requests.RequestException:
+                continue
+            if r.status_code == 200 and page_has_phone(r.text[:500_000], b):
+                return r.url
+    return ""
+
+
+def _same(a: dict, b: dict) -> bool:
+    if set(phone_keys(a.get("phone", ""))) & set(phone_keys(b.get("phone", ""))):
+        return True
+    norm = lambda s: re.sub(r"[^a-zа-я0-9]", "", s.lower().replace("ё", "е"))  # noqa: E731
+    return bool(norm(a.get("name", ""))) and norm(a.get("name", "")) == norm(b.get("name", ""))
+
+
+def _adopt(b: dict, other: dict, via: str) -> dict:
+    b = dict(b, sources=sorted(set(b["sources"]) | set(other["sources"])))
+    for f in ("site", "email", "phone", "address", "hours"):
+        if not b.get(f) and other.get(f):
+            b[f] = other[f]
+    for f in ("rating", "reviews"):
+        if other.get(f) is not None and b.get(f) is None:
+            b[f] = other[f]
+    b["domain"] = p.normalize(b["site"]) if b["site"] else ""
+    if b["site"]:
+        b["site_found"] = via
+    return b
+
+
+def verify_no_site(businesses: list[dict], city: str) -> list[dict]:
+    """Перепроверяет компании, у которых сайта нет только по данным OpenStreetMap.
+    Найденный сайт дописывается в карточку (site_found — где нашли); если справочник нашёл компанию без сайта,
+    он добавляется в sources — это подтверждение «нет сайта». Сеть недоступна или лимит кончился — компания остаётся как была."""
+    from concurrent.futures import ThreadPoolExecutor
+    todo = [i for i, b in enumerate(businesses) if not b["site"] and not (set(b["sources"]) & DIRECTORIES)]
+    if not todo:
+        return businesses
+    out = list(businesses)
+    country = city_country(city)
+    guess_idx = [i for i in todo if out[i].get("phone")][:GUESS_MAX]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for i, site in zip(guess_idx, pool.map(lambda i: guess_site(out[i], country), guess_idx)):
+            if site:
+                out[i] = _adopt(out[i], new_business(site=site, sources=[]), "по телефону на сайте")
+    keys = api_keys()
+    budget = LOOKUP_MAX
+    for i in todo:
+        if out[i]["site"] or budget <= 0:
+            continue
+        for src, name, func in (("2gis", "2ГИС", dgis_search), ("yandex", "Яндекс", yandex_search)):
+            if not keys[src] or api_left(src) <= 0:
+                continue
+            calls = [0]
+            try:
+                found = func(f"{out[i]['name']} {city}", keys[src], pages=1, _count=calls)
+            except MapError as e:
+                if any(x in str(e) for x in ("401", "403", "429", "ключ")):
+                    api_block(src, str(e))
+                continue
+            finally:
+                api_spend(src, max(calls[0], 1))
+                budget -= 1
+            match = [x for x in found if _same(out[i], x)]
+            with_site = [x for x in match if x["site"]]
+            if with_site:
+                out[i] = _adopt(out[i], with_site[0], name)
+            elif match:
+                out[i] = _adopt(out[i], match[0], name)  # справочник подтвердил: сайта нет и там
+            break
+    return out
+
+
+def no_site_confirmed(b: dict) -> bool:
+    """«Нет сайта» подтверждает справочник (2ГИС или Яндекс), а не только OpenStreetMap."""
+    return bool(set(b.get("sources", [])) & DIRECTORIES)
+
+
 # ───────────────────────────── приоритет ─────────────────────────────
 # Что видит сам владелец, весит больше всего; «невидимые» SEO-мелочи почти ничего не весят.
 VISIBLE = {
@@ -566,9 +747,13 @@ def lead_score(b: dict, a: p.Audit | None, tier: str) -> tuple[int, list[str], s
     """Приоритет 0–100 и причины. Чем выше, тем вероятнее, что компании нужен сайт и она готова платить."""
     kind = site_kind(b, a)
     reasons, score = [], 0
-    if kind == "no_site":
+    if kind == "no_site" and no_site_confirmed(b):
         score += 45
         reasons.append("нет сайта")
+    elif kind == "no_site":
+        # только OpenStreetMap: там поле «сайт» часто просто не заполнено — ниже в списке, пока не проверено
+        score += 30
+        reasons.append("сайта нет в OpenStreetMap (не перепроверено)")
     elif kind == "dead_site":
         if a.error.startswith(("сайт отвечает ошибкой", "заглушка")):
             score += 40

@@ -309,9 +309,13 @@ class Scoring(unittest.TestCase):
         self.assertNotIn("нет описания для поиска", reasons)  # мелочь не попадает в причины
 
     def test_no_site_and_dead_site(self):
-        s, reasons, kind = leads.lead_score(self.nb(name="Б", phone="+7 900 000 00 00"), None, "high")
+        s, reasons, kind = leads.lead_score(self.nb(name="Б", phone="+7 900 000 00 00", sources=["2ГИС"]), None, "high")
         self.assertEqual((kind, reasons[0]), ("no_site", "нет сайта"))
         self.assertGreaterEqual(s, 55)
+        # только OpenStreetMap: поле «сайт» могли не заполнить — ниже, с пометкой
+        s_osm, r_osm, _ = leads.lead_score(self.nb(name="Б", phone="+7 900 000 00 00", sources=["OSM"]), None, "high")
+        self.assertEqual(r_osm[0], "сайта нет в OpenStreetMap (не перепроверено)")
+        self.assertLess(s_osm, s)
         dead = p.Audit(input="x", domain="x.ru", error="заглушка: домен продаётся или сайт не работает")
         s2, r2, k2 = leads.lead_score(self.nb(name="В", site="x.ru", phone="1"), dead, "mid")
         self.assertEqual(k2, "dead_site")
@@ -377,3 +381,77 @@ class Pricing(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Phones(unittest.TestCase):
+    def test_formats(self):
+        f = leads.phone_info
+        self.assertEqual(f("+7 495 6015026"), {"text": "+7 495 601-50-26", "intl": "74956015026", "mobile": False})
+        self.assertEqual(f("8 (916) 123-45-67")["intl"], "79161234567")
+        self.assertTrue(f("8 (916) 123-45-67")["mobile"])
+        self.assertTrue(f("+7 701 123 45 67")["mobile"])          # Казахстан, мобильный
+        self.assertFalse(f("+7 727 123 45 67")["mobile"])         # Алматы, городской
+        self.assertEqual(f("+375 29 123-45-67"), {"text": "+375 29 123-45-67", "intl": "375291234567", "mobile": True})
+        self.assertEqual(f("8 017 123-45-67")["intl"], "375171234567")  # Беларусь внутри страны
+        self.assertEqual(f("7809374"), {"text": "7809374 (без кода города)", "intl": "", "mobile": False})
+
+    def test_mobile_first(self):
+        ph = leads.phones("+7 495 601-50-26; +7 916 123-45-67")
+        self.assertEqual(ph[0]["intl"], "79161234567")
+
+
+class VerifyNoSite(unittest.TestCase):
+    nb = staticmethod(leads.new_business)
+
+    def test_slugs(self):
+        self.assertEqual(leads.name_slugs("Дентал плюс"), ["dentalplus", "dental-plus"])
+        self.assertEqual(leads.name_slugs("ООО «High Style»"), ["highstyle", "high-style"])
+        self.assertEqual(leads.name_slugs("Ок"), [])
+
+    def test_page_must_have_company_phone(self):
+        b = self.nb(name="Дентал плюс", phone="+7 495 601-50-26")
+        self.assertTrue(leads.page_has_phone('<a href="tel:+74956015026">', b))
+        self.assertTrue(leads.page_has_phone("Звоните: 8 (495) 601-50-26", b))
+        self.assertFalse(leads.page_has_phone("Звоните: 8 (495) 601-50-27", b))
+        short = self.nb(name="X", phone="7809374")
+        self.assertTrue(leads.page_has_phone("тел. 780-93-74", short))
+
+    def test_guess_accepts_only_matching_phone(self):
+        b = self.nb(name="Дентал плюс", phone="+7 495 601-50-26", sources=["OSM"])
+
+        def get(url, **kw):
+            r = mock.Mock(status_code=200, url=url + "/")
+            r.text = "тел. +7 (495) 601-50-26" if url == "http://dental-plus.ru" else "тел. +7 (495) 000-00-00"
+            return r
+        with mock.patch.object(leads.requests, "get", side_effect=get):
+            self.assertEqual(leads.guess_site(b), "http://dental-plus.ru/")
+        with mock.patch.object(leads.requests, "get", side_effect=leads.requests.ConnectionError):
+            self.assertEqual(leads.guess_site(b), "")
+
+    def test_directory_lookup(self):
+        osm = [self.nb(name="Новодент", phone="+7 495 998-36-41", sources=["OSM"]),
+               self.nb(name="Без сайта", phone="+7 495 111-11-11", sources=["OSM"]),
+               self.nb(name="Есть в 2ГИС", phone="+7 495 222-22-22", sources=["2ГИС"])]
+
+        def dgis(q, key, pages=1, _count=None):
+            _count[0] += 1
+            if q.startswith("Новодент"):
+                return [self.nb(name="Новодент, стоматология", site="novodent.ru", phone="+7 (495) 998-36-41",
+                                reviews=40, sources=["2ГИС"])]
+            return [self.nb(name="Без сайта", phone="+7 (495) 111-11-11", sources=["2ГИС"])]
+        with mock.patch.object(leads, "guess_site", return_value=""), \
+                mock.patch.object(leads, "api_keys", return_value={"2gis": "k", "yandex": ""}), \
+                mock.patch.object(leads, "api_left", return_value=100), \
+                mock.patch.object(leads, "api_spend") as spend, \
+                mock.patch.object(leads, "dgis_search", side_effect=dgis) as d:
+            out = leads.verify_no_site(osm, "Москва")
+        self.assertEqual((out[0]["domain"], out[0]["site_found"], out[0]["reviews"]), ("novodent.ru", "2ГИС", 40))
+        self.assertTrue(leads.no_site_confirmed(out[1]))       # 2ГИС подтвердил: сайта нет
+        self.assertEqual(d.call_count, 2)                      # третью (уже из 2ГИС) не перепроверяли
+        self.assertEqual(spend.call_count, 2)
+
+    def test_no_keys_no_network_leaves_as_is(self):
+        b = [self.nb(name="Новодент", phone="+7 495 998-36-41", sources=["OSM"])]
+        with mock.patch.object(leads, "guess_site", return_value=""), \
+                mock.patch.object(leads, "api_keys", return_value={"2gis": "", "yandex": ""}):
+            self.assertEqual(leads.verify_no_site(b, "Москва"), b)
