@@ -180,6 +180,24 @@ class Sources(unittest.TestCase):
         self.assertFalse(leads.keep(nb(name="Авито", site="https://www.avito.ru/x"), set()))
         self.assertFalse(leads.keep(nb(name="Был", site="zyb-ok.ru"), {"zyb-ok.ru"}))
         self.assertFalse(leads.keep(nb(name="Был", phone="+7 900 000 00 00"), {"tel:9000000000"}))
+        # узнаёт по любому признаку, а не только по главному (домену или первому телефону)
+        again = nb(name="Был", site="https://byl.ru", phone="+7 900 111 11 11; +7 900 000 00 00", email="a@byl.ru")
+        self.assertFalse(leads.keep(again, {"tel:9000000000"}))
+        self.assertFalse(leads.keep(again, {"email:a@byl.ru"}))
+        self.assertFalse(leads.keep(again, {"a@byl.ru"}))  # почта из do_not_contact.txt
+        self.assertTrue(leads.keep(again, {"tel:9002222222", "other.ru"}))
+
+    def test_business_keys(self):
+        b = leads.new_business(name="Гараж", site="https://www.garage.ru/", phone="8 (913) 222-33-44, +7 900 111 22 33",
+                               email="Boss@Garage.ru")
+        self.assertEqual(leads.business_keys(b), ["garage.ru", "tel:9132223344", "tel:9001112233", "email:boss@garage.ru"])
+        self.assertEqual(leads.business_keys(leads.new_business(name="Без всего ")), ["name:без всего"])
+        self.assertEqual(leads.phone_keys("+7 913 222-33-44; 123; +7 913 222 33 44"), ["9132223344"])
+
+    def test_merge_any_phone(self):
+        a = leads.new_business(name="Гараж", phone="+7 900 111 22 33; +7 913 222 33 44", sources=["OSM"])
+        b = leads.new_business(name="Гараж Петровича", phone="+7 913 222 33 44; +7 900 111 22 33", sources=["2ГИС"])
+        self.assertEqual(len(leads.merge([[a], [b]])), 1)
 
     def test_find_businesses_combines_and_survives_failures(self):
         with mock.patch.object(leads, "api_keys", return_value={"yandex": "", "2gis": "K"}), \

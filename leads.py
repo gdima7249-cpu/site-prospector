@@ -103,9 +103,27 @@ def phone_key(phone: str) -> str:
     return digits[-10:] if len(digits) >= 10 else ""
 
 
+def phone_keys(phone: str) -> list[str]:
+    """Все номера компании (источники пишут их через «;» или «,» и в разном порядке)."""
+    return list(dict.fromkeys(k for k in map(phone_key, re.split(r"[;,]", phone or "")) if k))
+
+
 def business_key(b: dict) -> str:
     return b.get("domain") or (("tel:" + phone_key(b["phone"])) if phone_key(b.get("phone", "")) else "") \
         or "name:" + b.get("name", "").strip().lower()
+
+
+def business_keys(b: dict) -> list[str]:
+    """Все признаки, по которым компанию можно узнать снова: домен, каждый телефон, почта.
+    Первый — business_key. Нужны все: в другой день компания может прийти из другого источника —
+    уже с сайтом, с телефонами в другом порядке — и её главный признак изменится."""
+    keys = [business_key(b)]
+    if b.get("domain"):
+        keys.append(b["domain"])
+    keys += ["tel:" + k for k in phone_keys(b.get("phone", ""))]
+    if b.get("email"):
+        keys.append("email:" + b["email"].strip().lower())
+    return list(dict.fromkeys(keys))
 
 
 def new_business(**kw) -> dict:
@@ -123,9 +141,9 @@ def merge(groups: list[list[dict]]) -> list[dict]:
     for group in groups:
         for b in group:
             key = business_key(b)
-            pk = phone_key(b.get("phone", ""))
-            if key not in out and pk and pk in by_phone:
-                key = by_phone[pk]
+            pks = phone_keys(b.get("phone", ""))
+            if key not in out:
+                key = next((by_phone[pk] for pk in pks if pk in by_phone), key)
             if key not in out:
                 out[key] = dict(b, sources=list(b["sources"]))
             else:
@@ -137,7 +155,7 @@ def merge(groups: list[list[dict]]) -> list[dict]:
                     if b.get(f) is not None and (cur.get(f) is None or b[f] > cur[f]):
                         cur[f] = b[f]
                 cur["sources"] = sorted(set(cur["sources"]) | set(b["sources"]))
-            if pk:
+            for pk in pks:
                 by_phone.setdefault(pk, key)
     return list(out.values())
 
@@ -148,8 +166,8 @@ def keep(b: dict, skip: set[str]) -> bool:
         return False
     if b["site"] and is_portal_page(b["site"]):
         return False
-    if business_key(b) in skip:
-        return False
+    if any(k in skip for k in business_keys(b)) or (b.get("email") and b["email"].lower() in skip):
+        return False  # уже показывали, пропустили или в do_not_contact.txt — по любому из признаков
     if not b["site"] and not b["phone"] and not b["email"]:
         return False  # без сайта и без контактов предложить нечего
     return True
