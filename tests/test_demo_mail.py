@@ -68,8 +68,13 @@ class Demo(unittest.TestCase):
             self.assertNotIn('id="status"', page2)
             self.assertNotIn('id="rating"', page2)
             self.assertIn("уточняйте по телефону", page2)
-            with self.assertRaises(ValueError):
-                d.build_demo(b, "стоматология", niches["стоматология"], "Омск", {}, root)
+            # демо теперь есть у всех ниш: у стоматологии — свои услуги и без машин
+            tok3 = d.build_demo(b, "стоматология", niches["стоматология"], "Омск", {}, root, "simple")
+            page3 = (root / tok3 / "index.html").read_text(encoding="utf-8")
+            self.assertIn("Лечение кариеса", page3)
+            self.assertNotIn("hero-car.svg", page3)
+            self.assertNotIn("Наши работы", page3)
+            self.assertIsNone(re.search(r"\$[a-z_]+", page3))
 
 
     def test_build_studio(self):

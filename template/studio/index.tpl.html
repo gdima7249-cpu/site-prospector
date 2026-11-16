@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="${assets}css/demo.css">
   <script>document.documentElement.classList.add('js')</script>
 </head>
-<body data-tz="$tz" data-hours='$hours_json'>
+<body data-tz="$tz" data-hours='$hours_json'$accent_style>
 <!-- Демо собрано ботом site-prospector по эталону. Только найденные факты: без цен, отзывов и обещаний компании. -->
 <div class="demo-bar">$plaque</div>
 <a class="skip" href="#main">Перейти к содержанию</a>
@@ -51,10 +51,7 @@
 
 <section class="hero" id="top">
   <div class="hero__media" aria-hidden="true">
-    <picture>
-      <source type="image/webp" srcset="${assets}img/hero-1000.webp 1000w, ${assets}img/hero-1600.webp 1600w, ${assets}img/hero-2400.webp 2400w" sizes="100vw">
-      <img src="${assets}img/hero-1600.jpg" alt="" width="2400" height="1600" fetchpriority="high">
-    </picture>
+    $hero_media
   </div>
   <div class="hero__shade" aria-hidden="true"></div>
   <div class="wrap hero__content">
@@ -90,7 +87,7 @@ $services
     </ol>
     <p class="demo-note" data-reveal>Цены и описания услуг появятся на сайте после согласования с вами. Сейчас — уточняйте по телефону.</p>
   </div>
-  <div class="preview" aria-hidden="true"><img src="${assets}img/${preview}.webp" alt=""></div>
+  $preview_block
 </section>
 
 <section class="section how" id="how">
@@ -139,13 +136,8 @@ $rating_section
         <a href="#top">Наверх ↑</a>
       </nav>
     </div>
-    <details class="credits">
-      <summary>Фотографии на сайте</summary>
-      <ul>
-$credits
-      </ul>
-    </details>
-    <p class="footer__legal">Демо-концепт сайта. Фотографии — иллюстрации со свободными лицензиями, не работы компании. © <span data-year>2026</span></p>
+$credits_block
+    <p class="footer__legal">$legal © <span data-year>2026</span></p>
   </div>
 </footer>
 

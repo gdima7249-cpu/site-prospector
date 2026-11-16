@@ -32,6 +32,30 @@ CITY_TZ = {  # для бейджа «Открыто до …»; по умолч�
     "владивосток": "Asia/Vladivostok", "хабаровск": "Asia/Vladivostok", "якутск": "Asia/Yakutsk",
 }
 
+
+def city_tz(city: str) -> str:
+    """Часовой пояс города: из cities.json (все города от 100 тыс.), иначе из CITY_TZ, иначе Москва."""
+    c = city.strip().lower()
+    try:
+        data = json.loads((HERE / "cities.json").read_text(encoding="utf-8-sig"))
+        for x in data.get("cities", []):
+            if x["name"].lower() == c and x.get("tz"):
+                return x["tz"]
+    except (OSError, ValueError, KeyError):
+        pass
+    return CITY_TZ.get(c, "Europe/Moscow")
+
+
+def demo_config(niche_name: str, niche: dict) -> dict:
+    """Данные для демо. У ниши без раздела demo (например, добавленной через /addniche) — нейтральное демо
+    из её названия: без фото, с общими шагами «Позвоните — приходите — цена заранее»."""
+    if niche.get("demo"):
+        return niche["demo"]
+    title = niche_name.strip()
+    title = title[:1].upper() + title[1:]
+    return {"what": title, "hero": [title, ""], "services": [title, "Консультация по телефону"],
+            "steps": "visit", "photos": []}
+
 ICON = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" '
         'stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>')
 
@@ -117,13 +141,48 @@ def works_html(cfg: dict) -> str:
     return "\n".join(out)
 
 
+def has_photos(cfg: dict) -> bool:
+    """Автомобильные ниши — с фото и иллюстрациями машин; остальные ("photos": []) — без них, нейтральный фон."""
+    return cfg.get("photos") is None or bool(cfg.get("photos"))
+
+
+def works_section(cfg: dict) -> str:
+    if not has_photos(cfg) and not cfg.get("works"):
+        return ""
+    return f"""  <section id="works">
+    <p class="eyebrow">Примеры</p>
+    <h2>Наши работы</h2>
+    
+    <ul class="works">
+{works_html(cfg)}
+    </ul>
+    <p class="swipe" style="display:block">Сейчас здесь иллюстрации — на сайте будут фото ваших работ.</p>
+  </section>"""
+
+
+def hero_art(cfg: dict) -> str:
+    if not has_photos(cfg):
+        return ""
+    return ('<!-- ЗАМЕНИТЬ на фото сервиса или машины клиента: img/hero.jpg, 1040×600 -->\n'
+            '    <div class="hero-art"><img src="img/hero-car.svg" width="520" height="300" alt="Иллюстрация: автомобиль"></div>')
+
+
+ACCENT_RE = re.compile(r"#[0-9a-fA-F]{6}")
+
+
+def accent_style(cfg: dict) -> str:
+    """Цвет акцента ниши (у медицины — бирюзовый, у красоты — розовый…). Только #rrggbb — строка идёт в HTML."""
+    a = cfg.get("accent") or ""
+    return f' style="--accent: {a}; --accent-2: {a}"' if ACCENT_RE.fullmatch(a) else ""
+
+
 def build_demo(b: dict, niche_name: str, niche: dict, city: str, me: dict, out_root: Path,
                template: str = "studio") -> str:
     """Собирает демо в out_root/<токен>/ и возвращает токен (часть ссылки, которую нельзя угадать).
     template: "studio" — дизайн из эталона kuzovomsk-site (по умолчанию), "simple" — простой светлый шаблон."""
-    cfg = niche.get("demo")
-    if not cfg:
-        raise ValueError(f"для ниши «{niche_name}» нет эталона")
+    cfg = demo_config(niche_name, niche)
+    if not cfg.get("services"):
+        raise ValueError(f"для ниши «{niche_name}» не заданы услуги (demo → services)")
     e = html.escape
     name = b["name"].strip()
     phone_href, phone_text = phone_parts(b.get("phone", ""))
@@ -133,7 +192,7 @@ def build_demo(b: dict, niche_name: str, niche: dict, city: str, me: dict, out_r
 
     hours = parse_osm_hours(b.get("hours", ""))
     if hours:
-        tz = CITY_TZ.get(city.strip().lower(), "Europe/Moscow")
+        tz = city_tz(city)
         status = (f'<div class="status" id="status" data-tz="{tz}" '
                   f"data-hours='{json.dumps(hours)}'>Часы работы</div>")
         hours_text = hours_human(hours)
@@ -172,12 +231,13 @@ def build_demo(b: dict, niche_name: str, niche: dict, city: str, me: dict, out_r
         "name": e(name), "what": e(cfg["what"]), "where": e(full_addr),
         "phone_href": phone_href, "phone_text": e(phone_text or "телефон уточняется"),
         "route_href": f"https://yandex.ru/maps/?text={q}",
-        "chips": chips, "services": services, "works": works_html(cfg),
+        "chips": chips, "services": services, "works_section": works_section(cfg),
+        "hero_art": hero_art(cfg), "accent_style": accent_style(cfg),
         "price_note": "На сайте здесь будут ваши реальные цены «от». Пока — уточняйте по телефону.",
         "praise_section": "", "rating_section": rating_section,
         "address": e(full_addr), "hours_text": hours_text,
         "map_src": f"https://yandex.ru/map-widget/v1/?mode=search&amp;text={q}&amp;z=16",
-        "final_title": "Позвоните — подскажем цену", "final_text": "Расскажем стоимость и когда можно подъехать.",
+        "final_title": "Позвоните — подскажем цену", "final_text": preset(cfg)["final"],
         "footer": e(f"{name}, {city}"),
     }
     if template == "studio":
@@ -223,6 +283,65 @@ DEFAULT_STEPS = [
     {"title": "Приезжайте на осмотр", "text": "{адрес}. Мастер посмотрит автомобиль и назовёт стоимость."},
     {"title": "Заберите машину", "text": "Сроки и цену согласуем до начала работ."},
 ]
+# Готовые варианты для ниш: шаги «Как попасть», подзаголовок первого экрана и последний призыв простого шаблона.
+# У ниши: "steps": "visit" — один из вариантов, или список из трёх своих шагов (тогда текст — как у auto).
+PRESETS = {
+    "auto": {"steps": DEFAULT_STEPS, "lead": "Позвоните — подскажем стоимость и время, когда можно подъехать.",
+             "final": "Расскажем стоимость и когда можно подъехать."},
+    "visit": {"steps": [
+        {"title": "Позвоните", "text": "По телефону {телефон} — подберём удобное время."},
+        {"title": "Приходите", "text": "{адрес}. Специалист ответит на вопросы и назовёт стоимость."},
+        {"title": "Цена заранее", "text": "Стоимость согласуем до начала."}],
+        "lead": "Позвоните — подскажем стоимость и подберём удобное время.",
+        "final": "Расскажем стоимость и подберём удобное время."},
+    "onsite": {"steps": [
+        {"title": "Позвоните", "text": "По телефону {телефон} — расскажите, что нужно сделать."},
+        {"title": "Осмотр и замер", "text": "Мастер посмотрит объект и назовёт стоимость."},
+        {"title": "Работа по договорённости", "text": "Сроки и цену согласуем до начала работ."}],
+        "lead": "Позвоните — расскажем, сколько стоит и когда можем приступить.",
+        "final": "Расскажем стоимость и сроки работ."},
+    "order": {"steps": [
+        {"title": "Позвоните", "text": "По телефону {телефон} — расскажите, что хотите заказать."},
+        {"title": "Обсудим заказ", "text": "{адрес}. Подскажем варианты и рассчитаем стоимость."},
+        {"title": "Заберите заказ", "text": "Сроки и цену согласуем заранее."}],
+        "lead": "Позвоните — подскажем варианты, стоимость и сроки.",
+        "final": "Расскажем стоимость и сроки."},
+    "consult": {"steps": [
+        {"title": "Позвоните", "text": "По телефону {телефон} — коротко опишите вопрос."},
+        {"title": "Встреча", "text": "{адрес}. Разберём вашу ситуацию."},
+        {"title": "Цена заранее", "text": "Стоимость работы назовём до начала."}],
+        "lead": "Позвоните — разберём ваш вопрос и назовём стоимость.",
+        "final": "Разберём вопрос и назовём стоимость."},
+    "lessons": {"steps": [
+        {"title": "Позвоните", "text": "По телефону {телефон} — узнайте расписание и условия."},
+        {"title": "Приходите", "text": "{адрес}. Расскажем о занятиях и ответим на вопросы."},
+        {"title": "Начните заниматься", "text": "Стоимость и расписание согласуем заранее."}],
+        "lead": "Позвоните — расскажем о занятиях, расписании и стоимости.",
+        "final": "Расскажем о расписании и стоимости."},
+    "stay": {"steps": [
+        {"title": "Позвоните", "text": "По телефону {телефон} — узнайте о свободных датах."},
+        {"title": "Забронируйте", "text": "Подтвердим бронь и назовём стоимость."},
+        {"title": "Приезжайте", "text": "{адрес}."}],
+        "lead": "Позвоните — подскажем свободные даты и стоимость.",
+        "final": "Подскажем свободные даты и стоимость."},
+    "move": {"steps": [
+        {"title": "Позвоните", "text": "По телефону {телефон} — расскажите, откуда и куда."},
+        {"title": "Узнайте цену", "text": "Стоимость назовём до выезда."},
+        {"title": "Машина приедет", "text": "Время подачи согласуем по телефону."}],
+        "lead": "Позвоните — назовём стоимость и время подачи.",
+        "final": "Назовём стоимость и время подачи."},
+}
+
+
+def preset(cfg: dict) -> dict:
+    st = cfg.get("steps")
+    if isinstance(st, str):
+        if st not in PRESETS:
+            raise ValueError(f"нет варианта шагов «{st}» (есть: {', '.join(PRESETS)})")
+        return PRESETS[st]
+    return PRESETS["auto"]
+
+
 NBSP_AFTER = re.compile(r"(?<=\s)(в|и|на|по|до|с|к|о|у|за|от|без|не)\s", re.I)
 
 
@@ -234,6 +353,8 @@ def typo(s: str) -> str:
 
 def steps_html(cfg: dict, phone_href: str, phone_text: str, address_short: str) -> str:
     steps = cfg.get("steps") or DEFAULT_STEPS
+    if isinstance(steps, str):
+        steps = preset(cfg)["steps"]
     if len(steps) != 3:
         raise ValueError("в блоке «Как попасть» должно быть три шага")
     phone = f'<a href="{phone_href}">{html.escape(phone_text or "телефон уточняется")}</a>'
@@ -280,24 +401,28 @@ def render_studio(b, cfg, city, me, full_addr, q, phone_href, phone_text, hours,
         facts.append((e(phone_text), "телефон"))
     facts_html = "\n".join(f"      <li><b>{x}</b><span>{y}</span></li>" for x, y in facts[:4])
 
+    photo_mode = has_photos(cfg)
     marquee = "".join(f'<span{" class=\"o\"" if i % 2 else ""}>{e(s)}</span><i></i>' for i, s in enumerate(cfg["services"]))
-    photos = cfg.get("photos") or SERVICE_PHOTOS
+    photos = cfg.get("photos") or (SERVICE_PHOTOS if photo_mode else [])
     for p in photos:
         if p not in STUDIO_PHOTOS or p == "hero":
             raise ValueError(f"нет фото «{p}» со свободной лицензией (см. STUDIO_PHOTOS)")
     used = []
     rows = []
     for i, s in enumerate(cfg["services"], 1):
-        img = photos[(i - 1) % len(photos)]
-        used.append(img)
-        rows.append(f'      <li class="svc__row" data-reveal data-preview="{A}img/{img}.webp">\n'
+        img = photos[(i - 1) % len(photos)] if photos else ""
+        if img:
+            used.append(img)
+        rows.append((f'      <li class="svc__row" data-reveal data-preview="{A}img/{img}.webp">\n' if img else
+                     '      <li class="svc__row" data-reveal>\n') +
                     f'        <a class="svc__link" href="{phone_href}">\n'
                     f'          <span class="svc__num">{i:02d}</span>\n'
                     f'          <span class="svc__title">{e(s)}</span>\n'
                     f'          <span class="svc__price svc__price--ask">уточняйте по&nbsp;телефону</span>\n'
-                    f'        </a>\n'
-                    f'        <img class="svc__thumb" src="{A}img/{img}.webp" alt="" loading="lazy" width="800" height="533">\n'
-                    f'      </li>')
+                    f'        </a>\n' +
+                    (f'        <img class="svc__thumb" src="{A}img/{img}.webp" alt="" loading="lazy" width="800" height="533">\n'
+                     if img else '') +
+                    '      </li>')
 
     rating_section = ""
     if has_rating:
@@ -320,12 +445,25 @@ def render_studio(b, cfg, city, me, full_addr, q, phone_href, phone_text, hours,
 </section>
 """
     address_short = e(f"Адрес: {full_addr}") if b.get("address") else "Адрес уточните по&nbsp;телефону"
-    credits = [STUDIO_PHOTOS["hero"]] + [f"Услуги: {STUDIO_PHOTOS[x]}" for x in dict.fromkeys(used)]
+    if photo_mode:
+        credits = [STUDIO_PHOTOS["hero"]] + [f"Услуги: {STUDIO_PHOTOS[x]}" for x in dict.fromkeys(used)]
+        hero_media = (f'<picture>\n      <source type="image/webp" srcset="{A}img/hero-1000.webp 1000w, {A}img/hero-1600.webp 1600w, '
+                      f'{A}img/hero-2400.webp 2400w" sizes="100vw">\n      <img src="{A}img/hero-1600.jpg" alt="" width="2400" '
+                      f'height="1600" fetchpriority="high">\n    </picture>')
+        credits_block = ('    <details class="credits">\n      <summary>Фотографии на сайте</summary>\n      <ul>\n'
+                         + "\n".join(f"        <li>{c}</li>" for c in credits) + "\n      </ul>\n    </details>")
+        preview_block = f'<div class="preview" aria-hidden="true"><img src="{A}img/{used[0] if used else photos[0]}.webp" alt=""></div>'
+        legal = "Демо-концепт сайта. Фотографии — иллюстрации со свободными лицензиями, не работы компании."
+    else:
+        hero_media = '<div class="hero__plain"></div>'
+        credits_block = preview_block = ""
+        legal = "Демо-концепт сайта. На сайте здесь будут фотографии вашей работы."
     values = {
         "assets": A,
         "title": e(f"{name} — {cfg['what']}, {city}"),
         "description": e(f"{cfg['what']}. {full_addr}. Телефон {phone_text}."),
-        "tz": CITY_TZ.get(city.strip().lower(), "Europe/Moscow"),
+        "tz": city_tz(city), "accent_style": accent_style(cfg),
+        "hero_media": hero_media, "preview_block": preview_block, "credits_block": credits_block, "legal": legal,
         "hours_json": json.dumps(hours or {}),
         "plaque": ('<span class="demo-bar__full">' + e(f"Демо-концепт сайта для «{name}», подготовил {me.get('name', '')}. "
                    "Это не официальный сайт: данные взяты из открытых источников и могут быть неточны.") + '</span>'
@@ -336,15 +474,13 @@ def render_studio(b, cfg, city, me, full_addr, q, phone_href, phone_text, hours,
         "route_href": f"https://yandex.ru/maps/?text={q}",
         "kicker": e(full_addr),
         "hero_title": hero_title,
-        "lead": e(f"{name}. Позвоните — подскажем стоимость и время, когда можно подъехать."),
+        "lead": e(f"{name}. {cfg.get('lead') or preset(cfg)['lead']}"),
         "facts": facts_html, "marquee": marquee, "services": "\n".join(rows),
         "steps": steps_html(cfg, phone_href, phone_text, address_short),
-        "preview": used[0] if used else photos[0],
         "nav_rating": '<a href="#rating">Рейтинг</a>' if has_rating else "",
         "rating_section": rating_section, "contacts_num": "04" if has_rating else "03",
         "address": e(full_addr), "hours_text": hours_text,
         "map_src": f"https://yandex.ru/map-widget/v1/?mode=search&amp;text={q}&amp;z=16",
         "footer_line": e(full_addr),
-        "credits": "\n".join(f"        <li>{c}</li>" for c in credits),
     }
     return Template((STUDIO / "index.tpl.html").read_text(encoding="utf-8")).substitute(values)

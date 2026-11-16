@@ -14,3 +14,8 @@ out/
 public_demos/
 sender.json
 token.txt
+seen.txt
+city_cache.json
+city_cache.tmp
+api_usage.json
+config.json.bak-*

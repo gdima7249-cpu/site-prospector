@@ -45,13 +45,15 @@ MAX_SITES = 40      # сколько сайтов проверять за оди
 MAX_LEADS = 150     # сколько компаний рассматривать за один поиск
 SHOW_TOP = 10       # сколько карточек присылать за один поиск
 MIN_SCORE = 35      # ниже этого приоритета компания не показывается (но есть в отчёте)
+KEEP_LEADS = 3000   # сколько карточек помнить (кнопки старых карточек после этого не работают)
+ALL = ("все", "all", "*")  # schedule → cities / niches: "все" — все города из cities.json / все ниши
 
 HELP = """Напишите нишу и город, например:
 кузовной ремонт Омск
 стоматология Казань
 
 Бот пришлёт карточки лучших кандидатов. Под каждой кнопки:
-✅ Сделать демо — бот соберёт демо-сайт по эталону и подготовит письмо (только автомобильные ниши)
+✅ Сделать демо — бот соберёт демо-сайт по эталону и подготовит письмо
 ❌ Пропустить — больше не показывать
 Потом: 📨 Отправить / ✏️ Изменить текст / ❌ Отмена.
 
@@ -85,6 +87,27 @@ def load_state() -> dict:
     if isinstance(st["last"], dict) or (st["last"] and isinstance(st["last"][0], dict)):  # формат старых версий
         st["last"] = []
     return st
+
+
+def seen_path() -> Path:
+    return HERE / "seen.txt"
+
+
+def load_seen(st: dict) -> set[str]:
+    """Признаки уже показанных компаний. Хранятся отдельным файлом, по строке на признак: за месяцы работы их
+    становятся сотни тысяч, а bot_state.json перезаписывается после каждого сообщения. Старый формат (список
+    в bot_state.json) переносится в файл."""
+    path = seen_path()
+    seen = set()
+    if path.exists():
+        seen = {x for x in path.read_text(encoding="utf-8").splitlines() if x}
+    old = [k for k in st.get("seen") or [] if k not in seen]
+    if old:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write("".join(k + "\n" for k in old))
+        seen.update(old)
+    st["seen"] = []
+    return seen
 
 
 def save_state(st: dict):
@@ -286,9 +309,12 @@ def start_demo_server(root: Path, port: int) -> ThreadingHTTPServer:
 
 # ───────────────────────────── Telegram ─────────────────────────────
 class Bot:
+    last_error = ""
+
     def __init__(self, token: str, config: dict | None = None):
         self.api = f"https://api.telegram.org/bot{token}/"
         self.st = load_state()
+        self.seen = load_seen(self.st)
         self.cfg = config if config is not None else load_config()
         self.busy = threading.Lock()
         self.lock = threading.RLock()
@@ -296,12 +322,31 @@ class Bot:
         demo = self.cfg.get("demo", {})
         self.demo_root = HERE / demo.get("dir", "public_demos")
         self.demo_url = demo.get("public_url", "").rstrip("/")
+        leads.set_api_limits(self.cfg.get("limits", {}).get("api_per_day"))
 
     # — Telegram API —
     def call(self, method: str, timeout: int = 60, **params):
-        r = requests.post(self.api + method, data=params, timeout=timeout)
-        r.raise_for_status()
-        return r.json().get("result")
+        """Запрос к Telegram. «Слишком часто» (429) — ждём, сколько просит Telegram; сбой сети или 5xx — повторяем:
+        за день бот присылает десятки карточек, и одна заминка не должна обрывать поиск."""
+        for attempt in range(5):
+            try:
+                r = requests.post(self.api + method, data=params, timeout=timeout)
+            except requests.RequestException:
+                if attempt == 4:
+                    raise
+                time.sleep(3 * (attempt + 1))
+                continue
+            if r.status_code == 429 or r.status_code >= 500:
+                if attempt == 4:
+                    r.raise_for_status()
+                try:
+                    wait = int(r.json().get("parameters", {}).get("retry_after", 0))
+                except ValueError:
+                    wait = 0
+                time.sleep(min(max(wait, 3 * (attempt + 1)), 120))
+                continue
+            r.raise_for_status()
+            return r.json().get("result")
 
     def say(self, chat: int, text: str, markup: str | None = None):
         while text:  # лимит Telegram — 4096 символов
@@ -389,9 +434,10 @@ class Bot:
             niches = leads.load_niches()
             by_tier = {"high": [], "mid": [], "low": []}
             for name, d in niches.items():
-                mark = " 🖼" if d.get("demo") else ""
+                mark = "" if d.get("schedule", True) else " ⏸"
                 by_tier.get(d.get("tier", "mid"), by_tier["mid"]).append(name + mark)
-            return self.say(chat, "🖼 — для ниши есть эталон, бот умеет делать демо.\n\nВысокий чек: "
+            return self.say(chat, f"Ниш: {len(niches)}. Демо бот делает для любой. ⏸ — ниша не входит в ежедневный "
+                            "поиск (её можно искать вручную).\n\nВысокий чек: "
                             + ", ".join(by_tier["high"]) + "\n\nСредний: " + ", ".join(by_tier["mid"])
                             + "\n\nНебольшой: " + ", ".join(by_tier["low"]) + "\n\nСвоя ниша: /addniche название: слово1, слово2")
         if cmd == "/addniche":
@@ -454,75 +500,107 @@ class Bot:
         if not qs:
             return "Расписание: нет"
         sched = self.cfg.get("schedule", {})
-        nxt = qs[self.st.get("sched_pos", 0) % len(qs)]
-        return f"Расписание: {sched.get('time', '10:00')}, {len(qs)} запросов, следующий — «{nxt}»"
+        pos = self.st.get("sched_pos", 0) % len(qs)
+        per_day = int(sched.get("max_searches", 40))
+        return (f"Расписание: {sched.get('time', '10:00')}, {len(qs)} запросов, следующий — «{qs[pos]}» "
+                f"({pos + 1}-й). {len(self.schedule_niches())} ниш × {len(self.schedule_cities())} городов; "
+                f"до {per_day} запросов и {sched.get('max_cards', 20)} карточек в день — полный круг не меньше чем "
+                f"за {-(-len(qs) // max(per_day, 1))} дн.\n{leads.api_usage_text()}")
 
     def today(self) -> str:
         tz = ZoneInfo(self.cfg.get("schedule", {}).get("tz", "Europe/Moscow"))
         return datetime.now(tz).strftime("%Y-%m-%d")
 
     # — поиск —
-    def search(self, chat: int, niche_name: str, city: str, limit: int = SHOW_TOP) -> int:
-        """Ищет и присылает карточки. Возвращает число присланных карточек."""
+    def search(self, chat: int, niche_name: str, city: str, limit: int = SHOW_TOP, quiet: bool = False) -> int:
+        """Ищет и присылает карточки. Возвращает число присланных карточек.
+        quiet=True — поиск по расписанию: только карточки, без промежуточных сообщений и CSV (их за день десятки).
+        Если источники не ответили, self.last_error — текст ошибки (иначе пусто)."""
+        self.last_error = ""
         try:
             niche = leads.load_niches()[niche_name]
-            self.say(chat, f"Ищу «{niche_name}» в городе {city}…")
+            if not quiet:
+                self.say(chat, f"Ищу «{niche_name}» в городе {city}…")
             try:
                 found, notes = leads.find_businesses(niche_name, niche, city)
             except LookupError as e:
-                self.say(chat, str(e))
+                if not quiet:
+                    self.say(chat, str(e))
                 return 0
             except leads.MapError as e:
+                self.last_error = str(e)
+                if quiet:
+                    return 0
                 keys = leads.api_keys()
                 tip = "" if keys["2gis"] or keys["yandex"] else (
                     "\n\nБесплатные серверы OpenStreetMap иногда перегружены. Надёжнее подключить ключ 2ГИС или Яндекса "
                     "(см. /sources) — тогда бот будет работать и без OpenStreetMap.")
                 self.say(chat, f"Источники не ответили.\n{e}\n\nПопробуйте через 5–10 минут.{tip}")
                 return 0
-            skip = set(self.st["skip"]) | set(self.st["seen"]) | p.load_suppression(HERE / "do_not_contact.txt")
+            skip = set(self.st["skip"]) | self.seen | p.load_suppression(HERE / "do_not_contact.txt")
             fresh = [b for b in found if leads.keep(b, skip)][:MAX_LEADS]
             if not fresh:
-                self.say(chat, f"Новых компаний не нашёл ({'; '.join(notes)}). Попробуйте другую нишу или город.")
+                if not quiet:
+                    self.say(chat, f"Новых компаний не нашёл ({'; '.join(notes)}). Попробуйте другую нишу или город.")
                 return 0
             n_site = sum(1 for b in fresh if b["site"])
-            self.say(chat, f"Нашёл {len(fresh)} новых компаний ({'; '.join(notes)}): {n_site} с сайтом, "
-                           f"{len(fresh) - n_site} без. Проверяю сайты, это пара минут.")
+            if not quiet:
+                self.say(chat, f"Нашёл {len(fresh)} новых компаний ({'; '.join(notes)}): {n_site} с сайтом, "
+                               f"{len(fresh) - n_site} без. Проверяю сайты, это пара минут.")
             audits = audit_sites(fresh)
             rows = build_leads(fresh, audits, niche.get("tier", "mid"), city)
-            ids = []
-            with self.lock:
-                for L in rows:
-                    i = lead_id(L["b"])
-                    L.update(id=i, niche=niche_name, city=city, status="new")
-                    self.st["leads"][i] = L
-                    ids.append(i)
-                # все признаки компании (домен, телефоны, почта): в другой день она может прийти из другого
-                # источника уже с сайтом или другим первым телефоном — и всё равно не повторится
-                seen = set(self.st["seen"])
-                new_keys = (k for L in rows for k in leads.business_keys(L["b"]))
-                self.st["seen"] += [k for k in dict.fromkeys(new_keys) if k not in seen]
-                self.st["last"] = ids
-                if len(self.st["leads"]) > 1000:  # не раздувать файл состояния
-                    for old in list(self.st["leads"])[:-1000]:
-                        self.st["leads"].pop(old)
-            self.save()
+            for L in rows:
+                L.update(id=lead_id(L["b"]), niche=niche_name, city=city, status="new")
             top = [L for L in rows if L["score"] >= MIN_SCORE][:limit]
-            if not top:
+            # Запоминаем показанные компании и слабых кандидатов (ниже порога) — по всем признакам: домен, телефоны,
+            # почта. В другой день компания может прийти из другого источника уже с сайтом или другим первым
+            # телефоном — и всё равно не повторится. Хороших кандидатов, которым сегодня не хватило места
+            # (дневной лимит карточек), не запоминаем: они придут при следующем поиске этой ниши в этом городе.
+            shown = {L["id"] for L in top}
+            remember = [L for L in rows if L["id"] in shown or L["score"] < MIN_SCORE]
+            with self.lock:
+                for L in top:
+                    self.st["leads"][L["id"]] = L
+                self.st["last"] = [L["id"] for L in top]
+                new_keys = [k for k in dict.fromkeys(k for L in remember for k in leads.business_keys(L["b"]))
+                            if k not in self.seen]
+                if new_keys:
+                    with open(seen_path(), "a", encoding="utf-8") as f:
+                        f.write("".join(k + "\n" for k in new_keys))
+                    self.seen.update(new_keys)
+                self.trim_leads()
+            self.save()
+            if not top and not quiet:
                 self.say(chat, f"Оценил {len(rows)} компаний — подходящих мало. Полный список в файле.")
             for n, L in enumerate(top, 1):
-                buttons = [("✅ Сделать демо", f"demo:{L['id']}")] if niche.get("demo") else \
-                          [("✉️ Письмо без демо", f"demo:{L['id']}")]
-                self.say(chat, format_lead(n, L), kb(buttons + [("❌ Пропустить", f"skip:{L['id']}")]))
-            self.send_file(chat, f"{niche_name}-{city}.csv".replace(" ", "_"), csv_bytes(rows),
-                           "Все компании с приоритетом и рекомендацией (открывается в Excel)")
+                buttons = [("✅ Сделать демо", f"demo:{L['id']}"), ("❌ Пропустить", f"skip:{L['id']}")]
+                self.say(chat, format_lead(n, L) + (f"\n   📍 {niche_name} · {city}" if quiet else ""), kb(buttons))
+            if not quiet:
+                self.send_file(chat, f"{niche_name}-{city}.csv".replace(" ", "_"), csv_bytes(rows),
+                               "Все компании с приоритетом и рекомендацией (открывается в Excel)")
             return len(top)
         except Exception as e:  # noqa: BLE001
             print(f"Ошибка поиска: {e!r}")
-            self.say(chat, f"Что-то сломалось: {type(e).__name__}. Подробности — в окне, где запущен бот.")
+            self.last_error = f"{type(e).__name__}"
+            if not quiet:
+                self.say(chat, f"Что-то сломалось: {type(e).__name__}. Подробности — в окне, где запущен бот.")
             return 0
         finally:
             if self.busy.locked():
                 self.busy.release()
+
+    def trim_leads(self):
+        """Не раздувать bot_state.json: забываем самые старые карточки, которые уже ничего не ждут.
+        Отправленные и те, кому ответили, держим дольше — по ним бот узнаёт ответы клиентов."""
+        leads_ = self.st["leads"]
+        if len(leads_) <= KEEP_LEADS:
+            return
+        idle = [i for i, L in leads_.items() if L.get("status") in ("new", "skipped", "cancelled", None)]
+        for i in idle[:len(leads_) - KEEP_LEADS]:
+            leads_.pop(i)
+        if len(leads_) > 2 * KEEP_LEADS:
+            for i in list(leads_)[:len(leads_) - 2 * KEEP_LEADS]:
+                leads_.pop(i)
 
     # — кнопки —
     def handle_callback(self, cq: dict):
@@ -580,25 +658,25 @@ class Bot:
         note = ""
         if demo_cfg.get("pdf", True) and not want_pdf:
             note = "PDF выключен: на сервере не установлен браузер (мало места на диске — см. журнал установки).\n\n"
-        if niche.get("demo"):
-            if not self.demo_url and not want_pdf:
-                note += "Демо не показать: нет ни адреса демо-страниц (demo → public_url), ни PDF. Письмо — без демо.\n\n"
-            elif not L.get("demo"):
-                self.say(chat, f"Собираю демо для «{L['b']['name']}»" + (" и PDF…" if want_pdf else "…"))
-                try:
-                    L["demo"] = demo_builder.build_demo(L["b"], L["niche"], niche, L["city"], sender_info(), self.demo_root,
-                                                      demo_cfg.get("template", "studio"))
-                except Exception as e:  # noqa: BLE001
-                    print(f"Ошибка сборки демо: {e!r}")
-                    note = f"Демо собрать не удалось ({type(e).__name__}), письмо — без него.\n\n"
-            if L.get("demo") and want_pdf and not self.pdf_path(L):
-                try:
-                    demo_pdf.render_pdf(self.demo_root, L["demo"], L["b"]["name"], HERE / "demo_pdfs" / f"{L['demo']}.pdf",
-                                        demo_cfg.get("chromium_path"))
-                except Exception as e:  # noqa: BLE001
-                    print(f"Ошибка PDF: {e!r}")
-                    note += (f"PDF собрать не удалось ({type(e).__name__}). Если это ModuleNotFoundError или ошибка браузера — "
-                             "на сервере не установлен Chromium (см. README, раздел про PDF).\n\n")
+        # демо собирается для любой ниши (у ниш без раздела demo — нейтральное, из названия)
+        if not self.demo_url and not want_pdf:
+            note += "Демо не показать: нет ни адреса демо-страниц (demo → public_url), ни PDF. Письмо — без демо.\n\n"
+        elif not L.get("demo"):
+            self.say(chat, f"Собираю демо для «{L['b']['name']}»" + (" и PDF…" if want_pdf else "…"))
+            try:
+                L["demo"] = demo_builder.build_demo(L["b"], L["niche"], niche, L["city"], sender_info(), self.demo_root,
+                                                  demo_cfg.get("template", "studio"))
+            except Exception as e:  # noqa: BLE001
+                print(f"Ошибка сборки демо: {e!r}")
+                note = f"Демо собрать не удалось ({type(e).__name__}), письмо — без него.\n\n"
+        if L.get("demo") and want_pdf and not self.pdf_path(L):
+            try:
+                demo_pdf.render_pdf(self.demo_root, L["demo"], L["b"]["name"], HERE / "demo_pdfs" / f"{L['demo']}.pdf",
+                                    demo_cfg.get("chromium_path"))
+            except Exception as e:  # noqa: BLE001
+                print(f"Ошибка PDF: {e!r}")
+                note += (f"PDF собрать не удалось ({type(e).__name__}). Если это ModuleNotFoundError или ошибка браузера — "
+                         "на сервере не установлен Chromium (см. README, раздел про PDF).\n\n")
         pdf = self.pdf_path(L)
         if pdf:
             self.send_file(chat, self.pdf_name(L), pdf.read_bytes(), "PDF, который уйдёт клиенту вместе с письмом")
@@ -744,11 +822,32 @@ class Bot:
                 print(f"Ошибка расписания: {e!r}")
             time.sleep(30)
 
-    def schedule_queries(self) -> list[str]:
-        """Запросы расписания: searches + все сочетания niches × cities (город за городом)."""
+    def schedule_cities(self) -> list[str]:
+        """Города расписания: список из config.json или "все" (по умолчанию) — города из cities.json
+        (страны — schedule → countries, по умолчанию Россия, Казахстан и Беларусь), от крупных к небольшим."""
         sched = self.cfg.get("schedule", {})
+        cities = sched.get("cities", "все")
+        if isinstance(cities, str) and cities.strip().lower() in ALL:
+            countries = {c.upper() for c in sched.get("countries", ["RU", "KZ", "BY"])}
+            return [c["name"] for c in leads.load_cities() if c.get("country", "RU") in countries]
+        return [cities] if isinstance(cities, str) else list(cities)
+
+    def schedule_niches(self) -> list[str]:
+        """Ниши расписания: список из config.json или "все" (по умолчанию) — все ниши, кроме помеченных ⏸."""
+        niches = self.cfg.get("schedule", {}).get("niches", "все")
+        if isinstance(niches, str) and niches.strip().lower() in ALL:
+            return leads.scheduled_niches()
+        return [niches] if isinstance(niches, str) else list(niches)
+
+    def schedule_queries(self) -> list[str]:
+        """Запросы расписания: searches + все сочетания ниш и городов (город за городом, от крупных к небольшим)."""
+        sched = self.cfg.get("schedule")
+        if not sched:
+            return []
         qs = list(sched.get("searches", []))
-        qs += [f"{n} {c}" for c in sched.get("cities", []) for n in sched.get("niches", [])]
+        if not (sched.get("searches") and "cities" not in sched and "niches" not in sched):  # только searches — как раньше
+            niches = self.schedule_niches()
+            qs += [f"{n} {c}" for c in self.schedule_cities() for n in niches]
         return list(dict.fromkeys(qs))
 
     def run_schedule_if_due(self, now: datetime | None = None) -> bool:
@@ -756,32 +855,60 @@ class Bot:
         tz = ZoneInfo(sched.get("tz", "Europe/Moscow"))
         now = now or datetime.now(tz)
         day = now.strftime("%Y-%m-%d")
-        queries = self.schedule_queries()
         if (self.st["last_auto"] == day or now.strftime("%H:%M") < sched.get("time", "10:00")
-                or not self.st["owner_chat"] or not queries):
+                or not self.st["owner_chat"]):
+            return False
+        queries = self.schedule_queries()
+        if not queries:
             return False
         self.st["last_auto"] = day
         self.save()
+        leads.set_api_limits(self.cfg.get("limits", {}).get("api_per_day"))
         chat = self.st["owner_chat"]
-        left = int(sched.get("max_cards", SHOW_TOP))
-        max_searches = int(sched.get("max_searches", 8))  # не гонять все 60 запросов за день, если карточек мало
+        left = int(sched.get("max_cards", 20))
+        max_searches = int(sched.get("max_searches", 40))  # не перебирать за день тысячи запросов, если карточек мало
         pos = self.st.get("sched_pos", 0) % len(queries)
-        order = queries[pos:] + queries[:pos]  # продолжаем с места, где остановились вчера
-        self.say(chat, f"⏰ Поиск по расписанию: начинаю с «{order[0]}» ({pos + 1}-й из {len(queries)} запросов).")
+        self.say(chat, f"⏰ Поиск по расписанию: начинаю с «{queries[pos]}» ({pos + 1}-й из {len(queries)} запросов).")
         niches = leads.load_niches()
-        done = 0
-        for q in order[:max_searches]:
-            if left <= 0:
-                break
-            done += 1
+        done = cards = failed_in_row = 0
+        errors = []
+        while done < min(max_searches, len(queries)) and left > 0:
+            q = queries[pos]
             req = leads.parse_request(q, niches)
-            if not req:
-                self.say(chat, f"В расписании непонятный запрос: «{q}» — пропускаю.")
-                continue
-            self.busy.acquire()
-            left -= self.search(chat, *req, limit=left)
-        self.st["sched_pos"] = (pos + done) % len(queries)
+            if req:
+                if done:
+                    time.sleep(3)  # бесплатные серверы карт просят не слать запросы подряд
+                self.busy.acquire()
+                n = self.search(chat, *req, limit=left, quiet=True)
+                left -= n
+                cards += n
+                err = getattr(self, "last_error", "")
+            else:
+                err = f"непонятный запрос «{q}»"
+            if err and req:
+                failed_in_row += 1
+                errors.append(f"{q}: {err}")
+                if failed_in_row >= 3:
+                    # источники лежат — не прожигаем очередь: эти запросы повторим завтра
+                    pos = (pos - (failed_in_row - 1)) % len(queries)
+                    done -= failed_in_row - 1
+                    errors.append("три запроса подряд без ответа источников — остальное завтра")
+                    break
+            else:
+                failed_in_row = 0
+                if err:
+                    errors.append(err)
+            done += 1
+            pos = (pos + 1) % len(queries)
+            self.st["sched_pos"] = pos  # после каждого запроса: перезапуск бота не отбросит назад
+            self.save()
+        self.st["sched_pos"] = pos
         self.save()
+        summary = (f"Готово: {done} запросов, {cards} карточек. Следующий запрос завтра — «{queries[pos]}» "
+                   f"({pos + 1}-й из {len(queries)}).")
+        if errors:
+            summary += "\nНе получилось: " + "; ".join(errors[:5]) + (f" и ещё {len(errors) - 5}" if len(errors) > 5 else "")
+        self.say(chat, summary)
         return True
 
 

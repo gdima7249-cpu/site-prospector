@@ -1,0 +1,1412 @@
+{
+ "_comment": "Города для ежедневного поиска: Россия — 172 города от 100 тыс. жителей (оценка Росстата на 1 января 2023 г., по статье «Список городов России с населением более 100 тысяч жителей», Википедия, зеркало znanierussia.ru); Казахстан (21) и Беларусь (8) — города от 100 тыс. по оценке ООН на 2025 г. (World Urbanization Prospects 2025, через worldometers.info; это агломерации, поэтому числа больше, чем в границах города; в Беларуси взяты только самостоятельные города из списка). pop_k — тысяч жителей: бот идёт от крупных городов к небольшим. country — RU/KZ/BY (выбор стран — config.json → schedule → countries). region — чтобы не перепутать одноимённые города на карте, tz — часовой пояс для бейджа «Открыто до…» в демо (весь Казахстан с марта 2024 г. живёт по UTC+5).",
+ "cities": [
+  {
+   "name": "Москва",
+   "region": "Москва",
+   "tz": "Europe/Moscow",
+   "pop_k": 13098,
+   "country": "RU"
+  },
+  {
+   "name": "Санкт-Петербург",
+   "region": "Санкт-Петербург",
+   "tz": "Europe/Moscow",
+   "pop_k": 5598,
+   "country": "RU"
+  },
+  {
+   "name": "Алматы",
+   "region": "Алматы",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 2368,
+   "country": "KZ"
+  },
+  {
+   "name": "Минск",
+   "region": "Минск",
+   "tz": "Europe/Minsk",
+   "pop_k": 1951,
+   "country": "BY"
+  },
+  {
+   "name": "Новосибирск",
+   "region": "Новосибирская область",
+   "tz": "Asia/Novosibirsk",
+   "pop_k": 1634,
+   "country": "RU"
+  },
+  {
+   "name": "Екатеринбург",
+   "region": "Свердловская область",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 1544,
+   "country": "RU"
+  },
+  {
+   "name": "Казань",
+   "region": "Республика Татарстан",
+   "tz": "Europe/Moscow",
+   "pop_k": 1309,
+   "country": "RU"
+  },
+  {
+   "name": "Нижний Новгород",
+   "region": "Нижегородская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 1226,
+   "country": "RU"
+  },
+  {
+   "name": "Челябинск",
+   "region": "Челябинская область",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 1190,
+   "country": "RU"
+  },
+  {
+   "name": "Красноярск",
+   "region": "Красноярский край",
+   "tz": "Asia/Krasnoyarsk",
+   "pop_k": 1188,
+   "country": "RU"
+  },
+  {
+   "name": "Шымкент",
+   "region": "Шымкент",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 1184,
+   "country": "KZ"
+  },
+  {
+   "name": "Самара",
+   "region": "Самарская область",
+   "tz": "Europe/Samara",
+   "pop_k": 1173,
+   "country": "RU"
+  },
+  {
+   "name": "Уфа",
+   "region": "Республика Башкортостан",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 1145,
+   "country": "RU"
+  },
+  {
+   "name": "Ростов-на-Дону",
+   "region": "Ростовская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 1142,
+   "country": "RU"
+  },
+  {
+   "name": "Омск",
+   "region": "Омская область",
+   "tz": "Asia/Omsk",
+   "pop_k": 1126,
+   "country": "RU"
+  },
+  {
+   "name": "Краснодар",
+   "region": "Краснодарский край",
+   "tz": "Europe/Moscow",
+   "pop_k": 1099,
+   "country": "RU"
+  },
+  {
+   "name": "Астана",
+   "region": "Астана",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 1065,
+   "country": "KZ"
+  },
+  {
+   "name": "Воронеж",
+   "region": "Воронежская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 1058,
+   "country": "RU"
+  },
+  {
+   "name": "Пермь",
+   "region": "Пермский край",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 1034,
+   "country": "RU"
+  },
+  {
+   "name": "Волгоград",
+   "region": "Волгоградская область",
+   "tz": "Europe/Volgograd",
+   "pop_k": 1028,
+   "country": "RU"
+  },
+  {
+   "name": "Саратов",
+   "region": "Саратовская область",
+   "tz": "Europe/Saratov",
+   "pop_k": 901,
+   "country": "RU"
+  },
+  {
+   "name": "Тюмень",
+   "region": "Тюменская область",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 847,
+   "country": "RU"
+  },
+  {
+   "name": "Тольятти",
+   "region": "Самарская область",
+   "tz": "Europe/Samara",
+   "pop_k": 685,
+   "country": "RU"
+  },
+  {
+   "name": "Барнаул",
+   "region": "Алтайский край",
+   "tz": "Asia/Barnaul",
+   "pop_k": 631,
+   "country": "RU"
+  },
+  {
+   "name": "Ижевск",
+   "region": "Удмуртская Республика",
+   "tz": "Europe/Samara",
+   "pop_k": 623,
+   "country": "RU"
+  },
+  {
+   "name": "Махачкала",
+   "region": "Республика Дагестан",
+   "tz": "Europe/Moscow",
+   "pop_k": 623,
+   "country": "RU"
+  },
+  {
+   "name": "Хабаровск",
+   "region": "Хабаровский край",
+   "tz": "Asia/Vladivostok",
+   "pop_k": 617,
+   "country": "RU"
+  },
+  {
+   "name": "Ульяновск",
+   "region": "Ульяновская область",
+   "tz": "Europe/Ulyanovsk",
+   "pop_k": 617,
+   "country": "RU"
+  },
+  {
+   "name": "Иркутск",
+   "region": "Иркутская область",
+   "tz": "Asia/Irkutsk",
+   "pop_k": 617,
+   "country": "RU"
+  },
+  {
+   "name": "Владивосток",
+   "region": "Приморский край",
+   "tz": "Asia/Vladivostok",
+   "pop_k": 604,
+   "country": "RU"
+  },
+  {
+   "name": "Ярославль",
+   "region": "Ярославская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 577,
+   "country": "RU"
+  },
+  {
+   "name": "Кемерово",
+   "region": "Кемеровская область",
+   "tz": "Asia/Novokuznetsk",
+   "pop_k": 557,
+   "country": "RU"
+  },
+  {
+   "name": "Томск",
+   "region": "Томская область",
+   "tz": "Asia/Tomsk",
+   "pop_k": 556,
+   "country": "RU"
+  },
+  {
+   "name": "Севастополь",
+   "region": "Севастополь",
+   "tz": "Europe/Simferopol",
+   "pop_k": 556,
+   "country": "RU"
+  },
+  {
+   "name": "Набережные Челны",
+   "region": "Республика Татарстан",
+   "tz": "Europe/Moscow",
+   "pop_k": 548,
+   "country": "RU"
+  },
+  {
+   "name": "Ставрополь",
+   "region": "Ставропольский край",
+   "tz": "Europe/Moscow",
+   "pop_k": 547,
+   "country": "RU"
+  },
+  {
+   "name": "Оренбург",
+   "region": "Оренбургская область",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 544,
+   "country": "RU"
+  },
+  {
+   "name": "Новокузнецк",
+   "region": "Кемеровская область",
+   "tz": "Asia/Novokuznetsk",
+   "pop_k": 537,
+   "country": "RU"
+  },
+  {
+   "name": "Гомель",
+   "region": "Гомельская область",
+   "tz": "Europe/Minsk",
+   "pop_k": 530,
+   "country": "BY"
+  },
+  {
+   "name": "Рязань",
+   "region": "Рязанская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 529,
+   "country": "RU"
+  },
+  {
+   "name": "Балашиха",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 521,
+   "country": "RU"
+  },
+  {
+   "name": "Пенза",
+   "region": "Пензенская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 501,
+   "country": "RU"
+  },
+  {
+   "name": "Чебоксары",
+   "region": "Чувашская Республика",
+   "tz": "Europe/Moscow",
+   "pop_k": 498,
+   "country": "RU"
+  },
+  {
+   "name": "Липецк",
+   "region": "Липецкая область",
+   "tz": "Europe/Moscow",
+   "pop_k": 496,
+   "country": "RU"
+  },
+  {
+   "name": "Калининград",
+   "region": "Калининградская область",
+   "tz": "Europe/Kaliningrad",
+   "pop_k": 490,
+   "country": "RU"
+  },
+  {
+   "name": "Астрахань",
+   "region": "Астраханская область",
+   "tz": "Europe/Astrakhan",
+   "pop_k": 476,
+   "country": "RU"
+  },
+  {
+   "name": "Тула",
+   "region": "Тульская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 474,
+   "country": "RU"
+  },
+  {
+   "name": "Киров",
+   "region": "Кировская область",
+   "tz": "Europe/Kirov",
+   "pop_k": 468,
+   "country": "RU"
+  },
+  {
+   "name": "Сочи",
+   "region": "Краснодарский край",
+   "tz": "Europe/Moscow",
+   "pop_k": 466,
+   "country": "RU"
+  },
+  {
+   "name": "Курск",
+   "region": "Курская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 440,
+   "country": "RU"
+  },
+  {
+   "name": "Улан-Удэ",
+   "region": "Республика Бурятия",
+   "tz": "Asia/Irkutsk",
+   "pop_k": 438,
+   "country": "RU"
+  },
+  {
+   "name": "Тверь",
+   "region": "Тверская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 416,
+   "country": "RU"
+  },
+  {
+   "name": "Актобе",
+   "region": "Актюбинская область",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 416,
+   "country": "KZ"
+  },
+  {
+   "name": "Магнитогорск",
+   "region": "Челябинская область",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 411,
+   "country": "RU"
+  },
+  {
+   "name": "Сургут",
+   "region": "Ханты-Мансийский автономный округ",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 396,
+   "country": "RU"
+  },
+  {
+   "name": "Могилёв",
+   "region": "Могилёвская область",
+   "tz": "Europe/Minsk",
+   "pop_k": 381,
+   "country": "BY"
+  },
+  {
+   "name": "Брянск",
+   "region": "Брянская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 379,
+   "country": "RU"
+  },
+  {
+   "name": "Гродно",
+   "region": "Гродненская область",
+   "tz": "Europe/Minsk",
+   "pop_k": 374,
+   "country": "BY"
+  },
+  {
+   "name": "Брест",
+   "region": "Брестская область",
+   "tz": "Europe/Minsk",
+   "pop_k": 369,
+   "country": "BY"
+  },
+  {
+   "name": "Иваново",
+   "region": "Ивановская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 362,
+   "country": "RU"
+  },
+  {
+   "name": "Витебск",
+   "region": "Витебская область",
+   "tz": "Europe/Minsk",
+   "pop_k": 361,
+   "country": "BY"
+  },
+  {
+   "name": "Якутск",
+   "region": "Республика Саха (Якутия)",
+   "tz": "Asia/Yakutsk",
+   "pop_k": 355,
+   "country": "RU"
+  },
+  {
+   "name": "Владимир",
+   "region": "Владимирская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 350,
+   "country": "RU"
+  },
+  {
+   "name": "Симферополь",
+   "region": "Республика Крым",
+   "tz": "Europe/Simferopol",
+   "pop_k": 341,
+   "country": "RU"
+  },
+  {
+   "name": "Белгород",
+   "region": "Белгородская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 340,
+   "country": "RU"
+  },
+  {
+   "name": "Нижний Тагил",
+   "region": "Свердловская область",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 339,
+   "country": "RU"
+  },
+  {
+   "name": "Калуга",
+   "region": "Калужская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 337,
+   "country": "RU"
+  },
+  {
+   "name": "Чита",
+   "region": "Забайкальский край",
+   "tz": "Asia/Chita",
+   "pop_k": 334,
+   "country": "RU"
+  },
+  {
+   "name": "Грозный",
+   "region": "Чеченская Республика",
+   "tz": "Europe/Moscow",
+   "pop_k": 329,
+   "country": "RU"
+  },
+  {
+   "name": "Волжский",
+   "region": "Волгоградская область",
+   "tz": "Europe/Volgograd",
+   "pop_k": 321,
+   "country": "RU"
+  },
+  {
+   "name": "Смоленск",
+   "region": "Смоленская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 317,
+   "country": "RU"
+  },
+  {
+   "name": "Подольск",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 315,
+   "country": "RU"
+  },
+  {
+   "name": "Саранск",
+   "region": "Республика Мордовия",
+   "tz": "Europe/Moscow",
+   "pop_k": 315,
+   "country": "RU"
+  },
+  {
+   "name": "Вологда",
+   "region": "Вологодская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 314,
+   "country": "RU"
+  },
+  {
+   "name": "Караганда",
+   "region": "Карагандинская область",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 314,
+   "country": "KZ"
+  },
+  {
+   "name": "Курган",
+   "region": "Курганская область",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 311,
+   "country": "RU"
+  },
+  {
+   "name": "Актау",
+   "region": "Мангистауская область",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 311,
+   "country": "KZ"
+  },
+  {
+   "name": "Череповец",
+   "region": "Вологодская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 305,
+   "country": "RU"
+  },
+  {
+   "name": "Орёл",
+   "region": "Орловская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 303,
+   "country": "RU"
+  },
+  {
+   "name": "Архангельск",
+   "region": "Архангельская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 301,
+   "country": "RU"
+  },
+  {
+   "name": "Семей",
+   "region": "область Абай",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 299,
+   "country": "KZ"
+  },
+  {
+   "name": "Владикавказ",
+   "region": "Северная Осетия",
+   "tz": "Europe/Moscow",
+   "pop_k": 296,
+   "country": "RU"
+  },
+  {
+   "name": "Нижневартовск",
+   "region": "Ханты-Мансийский автономный округ",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 283,
+   "country": "RU"
+  },
+  {
+   "name": "Йошкар-Ола",
+   "region": "Республика Марий Эл",
+   "tz": "Europe/Moscow",
+   "pop_k": 281,
+   "country": "RU"
+  },
+  {
+   "name": "Павлодар",
+   "region": "Павлодарская область",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 280,
+   "country": "KZ"
+  },
+  {
+   "name": "Стерлитамак",
+   "region": "Республика Башкортостан",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 277,
+   "country": "RU"
+  },
+  {
+   "name": "Мурманск",
+   "region": "Мурманская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 270,
+   "country": "RU"
+  },
+  {
+   "name": "Кострома",
+   "region": "Костромская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 267,
+   "country": "RU"
+  },
+  {
+   "name": "Новороссийск",
+   "region": "Краснодарский край",
+   "tz": "Europe/Moscow",
+   "pop_k": 262,
+   "country": "RU"
+  },
+  {
+   "name": "Тамбов",
+   "region": "Тамбовская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 262,
+   "country": "RU"
+  },
+  {
+   "name": "Химки",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 257,
+   "country": "RU"
+  },
+  {
+   "name": "Мытищи",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 255,
+   "country": "RU"
+  },
+  {
+   "name": "Кызылорда",
+   "region": "Кызылординская область",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 251,
+   "country": "KZ"
+  },
+  {
+   "name": "Усть-Каменогорск",
+   "region": "Восточно-Казахстанская область",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 250,
+   "country": "KZ"
+  },
+  {
+   "name": "Нальчик",
+   "region": "Кабардино-Балкарская Республика",
+   "tz": "Europe/Moscow",
+   "pop_k": 247,
+   "country": "RU"
+  },
+  {
+   "name": "Таганрог",
+   "region": "Ростовская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 245,
+   "country": "RU"
+  },
+  {
+   "name": "Нижнекамск",
+   "region": "Республика Татарстан",
+   "tz": "Europe/Moscow",
+   "pop_k": 241,
+   "country": "RU"
+  },
+  {
+   "name": "Благовещенск",
+   "region": "Амурская область",
+   "tz": "Asia/Yakutsk",
+   "pop_k": 241,
+   "country": "RU"
+  },
+  {
+   "name": "Комсомольск-на-Амуре",
+   "region": "Хабаровский край",
+   "tz": "Asia/Vladivostok",
+   "pop_k": 239,
+   "country": "RU"
+  },
+  {
+   "name": "Петрозаводск",
+   "region": "Республика Карелия",
+   "tz": "Europe/Moscow",
+   "pop_k": 235,
+   "country": "RU"
+  },
+  {
+   "name": "Королёв",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 228,
+   "country": "RU"
+  },
+  {
+   "name": "Шахты",
+   "region": "Ростовская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 226,
+   "country": "RU"
+  },
+  {
+   "name": "Энгельс",
+   "region": "Саратовская область",
+   "tz": "Europe/Saratov",
+   "pop_k": 225,
+   "country": "RU"
+  },
+  {
+   "name": "Великий Новгород",
+   "region": "Новгородская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 224,
+   "country": "RU"
+  },
+  {
+   "name": "Люберцы",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 224,
+   "country": "RU"
+  },
+  {
+   "name": "Братск",
+   "region": "Иркутская область",
+   "tz": "Asia/Irkutsk",
+   "pop_k": 224,
+   "country": "RU"
+  },
+  {
+   "name": "Старый Оскол",
+   "region": "Белгородская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 222,
+   "country": "RU"
+  },
+  {
+   "name": "Ангарск",
+   "region": "Иркутская область",
+   "tz": "Asia/Irkutsk",
+   "pop_k": 221,
+   "country": "RU"
+  },
+  {
+   "name": "Сыктывкар",
+   "region": "Республика Коми",
+   "tz": "Europe/Moscow",
+   "pop_k": 221,
+   "country": "RU"
+  },
+  {
+   "name": "Дзержинск",
+   "region": "Нижегородская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 219,
+   "country": "RU"
+  },
+  {
+   "name": "Туркестан",
+   "region": "Туркестанская область",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 218,
+   "country": "KZ"
+  },
+  {
+   "name": "Атырау",
+   "region": "Атырауская область",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 194,
+   "country": "KZ"
+  },
+  {
+   "name": "Псков",
+   "region": "Псковская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 193,
+   "country": "RU"
+  },
+  {
+   "name": "Орск",
+   "region": "Оренбургская область",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 189,
+   "country": "RU"
+  },
+  {
+   "name": "Красногорск",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 188,
+   "country": "RU"
+  },
+  {
+   "name": "Армавир",
+   "region": "Краснодарский край",
+   "tz": "Europe/Moscow",
+   "pop_k": 187,
+   "country": "RU"
+  },
+  {
+   "name": "Уральск",
+   "region": "Западно-Казахстанская область",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 187,
+   "country": "KZ"
+  },
+  {
+   "name": "Абакан",
+   "region": "Республика Хакасия",
+   "tz": "Asia/Krasnoyarsk",
+   "pop_k": 185,
+   "country": "RU"
+  },
+  {
+   "name": "Балаково",
+   "region": "Саратовская область",
+   "tz": "Europe/Saratov",
+   "pop_k": 184,
+   "country": "RU"
+  },
+  {
+   "name": "Бийск",
+   "region": "Алтайский край",
+   "tz": "Asia/Barnaul",
+   "pop_k": 184,
+   "country": "RU"
+  },
+  {
+   "name": "Южно-Сахалинск",
+   "region": "Сахалинская область",
+   "tz": "Asia/Sakhalin",
+   "pop_k": 182,
+   "country": "RU"
+  },
+  {
+   "name": "Одинцово",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 181,
+   "country": "RU"
+  },
+  {
+   "name": "Тараз",
+   "region": "Жамбылская область",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 181,
+   "country": "KZ"
+  },
+  {
+   "name": "Уссурийск",
+   "region": "Приморский край",
+   "tz": "Asia/Vladivostok",
+   "pop_k": 180,
+   "country": "RU"
+  },
+  {
+   "name": "Бобруйск",
+   "region": "Могилёвская область",
+   "tz": "Europe/Minsk",
+   "pop_k": 179,
+   "country": "BY"
+  },
+  {
+   "name": "Прокопьевск",
+   "region": "Кемеровская область",
+   "tz": "Asia/Novokuznetsk",
+   "pop_k": 178,
+   "country": "RU"
+  },
+  {
+   "name": "Барановичи",
+   "region": "Брестская область",
+   "tz": "Europe/Minsk",
+   "pop_k": 178,
+   "country": "BY"
+  },
+  {
+   "name": "Рыбинск",
+   "region": "Ярославская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 177,
+   "country": "RU"
+  },
+  {
+   "name": "Костанай",
+   "region": "Костанайская область",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 177,
+   "country": "KZ"
+  },
+  {
+   "name": "Норильск",
+   "region": "Красноярский край",
+   "tz": "Asia/Krasnoyarsk",
+   "pop_k": 174,
+   "country": "RU"
+  },
+  {
+   "name": "Талдыкорган",
+   "region": "область Жетысу",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 173,
+   "country": "KZ"
+  },
+  {
+   "name": "Жанаозен",
+   "region": "Мангистауская область",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 172,
+   "country": "KZ"
+  },
+  {
+   "name": "Волгодонск",
+   "region": "Ростовская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 168,
+   "country": "RU"
+  },
+  {
+   "name": "Сызрань",
+   "region": "Самарская область",
+   "tz": "Europe/Samara",
+   "pop_k": 166,
+   "country": "RU"
+  },
+  {
+   "name": "Петропавловск-Камчатский",
+   "region": "Камчатский край",
+   "tz": "Asia/Kamchatka",
+   "pop_k": 165,
+   "country": "RU"
+  },
+  {
+   "name": "Каменск-Уральский",
+   "region": "Свердловская область",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 164,
+   "country": "RU"
+  },
+  {
+   "name": "Новочеркасск",
+   "region": "Ростовская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 164,
+   "country": "RU"
+  },
+  {
+   "name": "Альметьевск",
+   "region": "Республика Татарстан",
+   "tz": "Europe/Moscow",
+   "pop_k": 164,
+   "country": "RU"
+  },
+  {
+   "name": "Златоуст",
+   "region": "Челябинская область",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 162,
+   "country": "RU"
+  },
+  {
+   "name": "Северодвинск",
+   "region": "Архангельская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 157,
+   "country": "RU"
+  },
+  {
+   "name": "Хасавюрт",
+   "region": "Республика Дагестан",
+   "tz": "Europe/Moscow",
+   "pop_k": 155,
+   "country": "RU"
+  },
+  {
+   "name": "Керчь",
+   "region": "Республика Крым",
+   "tz": "Europe/Simferopol",
+   "pop_k": 155,
+   "country": "RU"
+  },
+  {
+   "name": "Домодедово",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 152,
+   "country": "RU"
+  },
+  {
+   "name": "Салават",
+   "region": "Республика Башкортостан",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 149,
+   "country": "RU"
+  },
+  {
+   "name": "Миасс",
+   "region": "Челябинская область",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 148,
+   "country": "RU"
+  },
+  {
+   "name": "Копейск",
+   "region": "Челябинская область",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 148,
+   "country": "RU"
+  },
+  {
+   "name": "Пятигорск",
+   "region": "Ставропольский край",
+   "tz": "Europe/Moscow",
+   "pop_k": 146,
+   "country": "RU"
+  },
+  {
+   "name": "Электросталь",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 146,
+   "country": "RU"
+  },
+  {
+   "name": "Темиртау",
+   "region": "Карагандинская область",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 144,
+   "country": "KZ"
+  },
+  {
+   "name": "Майкоп",
+   "region": "Республика Адыгея",
+   "tz": "Europe/Moscow",
+   "pop_k": 143,
+   "country": "RU"
+  },
+  {
+   "name": "Находка",
+   "region": "Приморский край",
+   "tz": "Asia/Vladivostok",
+   "pop_k": 140,
+   "country": "RU"
+  },
+  {
+   "name": "Кокшетау",
+   "region": "Акмолинская область",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 139,
+   "country": "KZ"
+  },
+  {
+   "name": "Петропавловск",
+   "region": "Северо-Казахстанская область",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 139,
+   "country": "KZ"
+  },
+  {
+   "name": "Березники",
+   "region": "Пермский край",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 138,
+   "country": "RU"
+  },
+  {
+   "name": "Коломна",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 135,
+   "country": "RU"
+  },
+  {
+   "name": "Щёлково",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 134,
+   "country": "RU"
+  },
+  {
+   "name": "Серпухов",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 134,
+   "country": "RU"
+  },
+  {
+   "name": "Ковров",
+   "region": "Владимирская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 132,
+   "country": "RU"
+  },
+  {
+   "name": "Нефтекамск",
+   "region": "Республика Башкортостан",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 132,
+   "country": "RU"
+  },
+  {
+   "name": "Кисловодск",
+   "region": "Ставропольский край",
+   "tz": "Europe/Moscow",
+   "pop_k": 128,
+   "country": "RU"
+  },
+  {
+   "name": "Батайск",
+   "region": "Ростовская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 127,
+   "country": "RU"
+  },
+  {
+   "name": "Рубцовск",
+   "region": "Алтайский край",
+   "tz": "Asia/Barnaul",
+   "pop_k": 127,
+   "country": "RU"
+  },
+  {
+   "name": "Обнинск",
+   "region": "Калужская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 125,
+   "country": "RU"
+  },
+  {
+   "name": "Кызыл",
+   "region": "Республика Тыва",
+   "tz": "Asia/Krasnoyarsk",
+   "pop_k": 125,
+   "country": "RU"
+  },
+  {
+   "name": "Дербент",
+   "region": "Республика Дагестан",
+   "tz": "Europe/Moscow",
+   "pop_k": 125,
+   "country": "RU"
+  },
+  {
+   "name": "Нефтеюганск",
+   "region": "Ханты-Мансийский автономный округ",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 125,
+   "country": "RU"
+  },
+  {
+   "name": "Экибастуз",
+   "region": "Павлодарская область",
+   "tz": "Asia/Aqtobe",
+   "pop_k": 123,
+   "country": "KZ"
+  },
+  {
+   "name": "Назрань",
+   "region": "Республика Ингушетия",
+   "tz": "Europe/Moscow",
+   "pop_k": 122,
+   "country": "RU"
+  },
+  {
+   "name": "Каспийск",
+   "region": "Республика Дагестан",
+   "tz": "Europe/Moscow",
+   "pop_k": 121,
+   "country": "RU"
+  },
+  {
+   "name": "Долгопрудный",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 121,
+   "country": "RU"
+  },
+  {
+   "name": "Новочебоксарск",
+   "region": "Чувашская Республика",
+   "tz": "Europe/Moscow",
+   "pop_k": 120,
+   "country": "RU"
+  },
+  {
+   "name": "Новомосковск",
+   "region": "Тульская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 120,
+   "country": "RU"
+  },
+  {
+   "name": "Ессентуки",
+   "region": "Ставропольский край",
+   "tz": "Europe/Moscow",
+   "pop_k": 120,
+   "country": "RU"
+  },
+  {
+   "name": "Невинномысск",
+   "region": "Ставропольский край",
+   "tz": "Europe/Moscow",
+   "pop_k": 118,
+   "country": "RU"
+  },
+  {
+   "name": "Октябрьский",
+   "region": "Республика Башкортостан",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 116,
+   "country": "RU"
+  },
+  {
+   "name": "Раменское",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 115,
+   "country": "RU"
+  },
+  {
+   "name": "Первоуральск",
+   "region": "Свердловская область",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 114,
+   "country": "RU"
+  },
+  {
+   "name": "Михайловск",
+   "region": "Ставропольский край",
+   "tz": "Europe/Moscow",
+   "pop_k": 114,
+   "country": "RU"
+  },
+  {
+   "name": "Реутов",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 114,
+   "country": "RU"
+  },
+  {
+   "name": "Черкесск",
+   "region": "Карачаево-Черкесская Республика",
+   "tz": "Europe/Moscow",
+   "pop_k": 113,
+   "country": "RU"
+  },
+  {
+   "name": "Жуковский",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 111,
+   "country": "RU"
+  },
+  {
+   "name": "Димитровград",
+   "region": "Ульяновская область",
+   "tz": "Europe/Ulyanovsk",
+   "pop_k": 111,
+   "country": "RU"
+  },
+  {
+   "name": "Пушкино",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 111,
+   "country": "RU"
+  },
+  {
+   "name": "Артём",
+   "region": "Приморский край",
+   "tz": "Asia/Vladivostok",
+   "pop_k": 110,
+   "country": "RU"
+  },
+  {
+   "name": "Камышин",
+   "region": "Волгоградская область",
+   "tz": "Europe/Volgograd",
+   "pop_k": 108,
+   "country": "RU"
+  },
+  {
+   "name": "Евпатория",
+   "region": "Республика Крым",
+   "tz": "Europe/Simferopol",
+   "pop_k": 108,
+   "country": "RU"
+  },
+  {
+   "name": "Муром",
+   "region": "Владимирская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 107,
+   "country": "RU"
+  },
+  {
+   "name": "Ханты-Мансийск",
+   "region": "Ханты-Мансийский автономный округ",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 107,
+   "country": "RU"
+  },
+  {
+   "name": "Новый Уренгой",
+   "region": "Ямало-Ненецкий автономный округ",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 107,
+   "country": "RU"
+  },
+  {
+   "name": "Северск",
+   "region": "Томская область",
+   "tz": "Asia/Tomsk",
+   "pop_k": 107,
+   "country": "RU"
+  },
+  {
+   "name": "Орехово-Зуево",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 106,
+   "country": "RU"
+  },
+  {
+   "name": "Арзамас",
+   "region": "Нижегородская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 105,
+   "country": "RU"
+  },
+  {
+   "name": "Ногинск",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 104,
+   "country": "RU"
+  },
+  {
+   "name": "Новошахтинск",
+   "region": "Ростовская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 103,
+   "country": "RU"
+  },
+  {
+   "name": "Бердск",
+   "region": "Новосибирская область",
+   "tz": "Asia/Novosibirsk",
+   "pop_k": 103,
+   "country": "RU"
+  },
+  {
+   "name": "Элиста",
+   "region": "Республика Калмыкия",
+   "tz": "Europe/Moscow",
+   "pop_k": 103,
+   "country": "RU"
+  },
+  {
+   "name": "Сергиев Посад",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 102,
+   "country": "RU"
+  },
+  {
+   "name": "Видное",
+   "region": "Московская область",
+   "tz": "Europe/Moscow",
+   "pop_k": 101,
+   "country": "RU"
+  },
+  {
+   "name": "Ачинск",
+   "region": "Красноярский край",
+   "tz": "Asia/Krasnoyarsk",
+   "pop_k": 101,
+   "country": "RU"
+  },
+  {
+   "name": "Тобольск",
+   "region": "Тюменская область",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 100,
+   "country": "RU"
+  },
+  {
+   "name": "Ноябрьск",
+   "region": "Ямало-Ненецкий автономный округ",
+   "tz": "Asia/Yekaterinburg",
+   "pop_k": 100,
+   "country": "RU"
+  }
+ ]
+}
