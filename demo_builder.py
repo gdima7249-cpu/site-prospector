@@ -94,6 +94,29 @@ def phone_parts(phone: str) -> tuple[str, str]:
     return (f"tel:+{digits}" if digits else "#"), first
 
 
+# «Наши работы» в простом шаблоне. По умолчанию — иллюстрации кузовного ремонта (эталон); у ниши можно задать свои:
+# "works": [{"title": "Балансировка", "img": "hero-car.svg", "alt": "…"}] — img из template/img/.
+BODY_WORKS = [
+    {"title": "Покраска", "img": "work-paint.svg", "alt": "Покраска двери"},
+    {"title": "Кузовные работы", "img": "work-dent.svg", "alt": "Удаление вмятины на крыле"},
+    {"title": "Полировка", "img": "work-polish.svg", "alt": "Полировка кузова"},
+    {"title": "Бампер", "img": "work-bumper.svg", "alt": "Ремонт бампера"},
+]
+
+
+def works_html(cfg: dict) -> str:
+    e = html.escape
+    out = []
+    for w in cfg.get("works") or BODY_WORKS:
+        img = w.get("img") or "hero-car.svg"
+        if not (IMG / img).is_file():
+            raise ValueError(f"нет иллюстрации template/img/{img}")
+        out.append(f'      <li class="card"><img src="img/{e(img)}" width="400" height="300" loading="lazy" '
+                   f'alt="{e(w.get("alt") or w["title"])}"><div class="cap"><b>{e(w["title"])}</b>'
+                   f'<span>место для фото ваших работ</span></div></li>')
+    return "\n".join(out)
+
+
 def build_demo(b: dict, niche_name: str, niche: dict, city: str, me: dict, out_root: Path,
                template: str = "studio") -> str:
     """Собирает демо в out_root/<токен>/ и возвращает токен (часть ссылки, которую нельзя угадать).
@@ -149,7 +172,7 @@ def build_demo(b: dict, niche_name: str, niche: dict, city: str, me: dict, out_r
         "name": e(name), "what": e(cfg["what"]), "where": e(full_addr),
         "phone_href": phone_href, "phone_text": e(phone_text or "телефон уточняется"),
         "route_href": f"https://yandex.ru/maps/?text={q}",
-        "chips": chips, "services": services,
+        "chips": chips, "services": services, "works": works_html(cfg),
         "price_note": "На сайте здесь будут ваши реальные цены «от». Пока — уточняйте по телефону.",
         "praise_section": "", "rating_section": rating_section,
         "address": e(full_addr), "hours_text": hours_text,
@@ -190,6 +213,36 @@ STUDIO_PHOTOS = {
     "tech-1000": '<a href="https://www.flickr.com/photos/44124401501@N01/99245480" target="_blank" rel="noopener">«My car at the garage»</a>, автор sylvar, <a href="https://creativecommons.org/licenses/by/2.0/" target="_blank" rel="noopener">CC BY 2.0</a>; обработано (ч/б, кадрирование)',
 }
 SERVICE_PHOTOS = ["svc-body-800", "svc-paint-800", "svc-polish-800", "svc-lights-800", "tech-1000"]
+# Фото к услугам по умолчанию — под кузовной ремонт (сварка, покраска). У ниши можно задать свои: "photos": [...]
+# из ключей STUDIO_PHOTOS (кроме hero) — например, для шиномонтажа без сварщика и малярки.
+
+# Блок «Как попасть». {телефон} и {адрес} бот подставляет сам. У ниши можно задать свои шаги:
+# "steps": [{"title": "Позвоните", "text": "По телефону {телефон} — …"}, …] — ровно три.
+DEFAULT_STEPS = [
+    {"title": "Позвоните", "text": "По телефону {телефон} — расскажите, что случилось."},
+    {"title": "Приезжайте на осмотр", "text": "{адрес}. Мастер посмотрит автомобиль и назовёт стоимость."},
+    {"title": "Заберите машину", "text": "Сроки и цену согласуем до начала работ."},
+]
+NBSP_AFTER = re.compile(r"(?<=\s)(в|и|на|по|до|с|к|о|у|за|от|без|не)\s", re.I)
+
+
+def typo(s: str) -> str:
+    """Неразрывные пробелы после коротких предлогов и перед тире — как в эталоне."""
+    s = NBSP_AFTER.sub(lambda m: m.group(1) + "&nbsp;", " " + s)[1:]
+    return re.sub(r"^(в|и|на|по|до|с|к|о|у|за|от|без|не)\s", r"\1&nbsp;", s, flags=re.I).replace(" —", "&nbsp;—")
+
+
+def steps_html(cfg: dict, phone_href: str, phone_text: str, address_short: str) -> str:
+    steps = cfg.get("steps") or DEFAULT_STEPS
+    if len(steps) != 3:
+        raise ValueError("в блоке «Как попасть» должно быть три шага")
+    phone = f'<a href="{phone_href}">{html.escape(phone_text or "телефон уточняется")}</a>'
+    out = []
+    for i, st in enumerate(steps, 1):
+        text = typo(html.escape(st["text"])).replace("{телефон}", phone).replace("{адрес}", address_short)
+        out.append(f'      <li data-reveal><span class="steps__n">{i:02d}</span><h3>{typo(html.escape(st["title"]))}</h3>'
+                   f'<p>{text}</p></li>')
+    return "\n".join(out)
 
 
 def hours_one_line(hours: dict | None) -> str:
@@ -228,10 +281,14 @@ def render_studio(b, cfg, city, me, full_addr, q, phone_href, phone_text, hours,
     facts_html = "\n".join(f"      <li><b>{x}</b><span>{y}</span></li>" for x, y in facts[:4])
 
     marquee = "".join(f'<span{" class=\"o\"" if i % 2 else ""}>{e(s)}</span><i></i>' for i, s in enumerate(cfg["services"]))
+    photos = cfg.get("photos") or SERVICE_PHOTOS
+    for p in photos:
+        if p not in STUDIO_PHOTOS or p == "hero":
+            raise ValueError(f"нет фото «{p}» со свободной лицензией (см. STUDIO_PHOTOS)")
     used = []
     rows = []
     for i, s in enumerate(cfg["services"], 1):
-        img = SERVICE_PHOTOS[(i - 1) % len(SERVICE_PHOTOS)]
+        img = photos[(i - 1) % len(photos)]
         used.append(img)
         rows.append(f'      <li class="svc__row" data-reveal data-preview="{A}img/{img}.webp">\n'
                     f'        <a class="svc__link" href="{phone_href}">\n'
@@ -262,6 +319,7 @@ def render_studio(b, cfg, city, me, full_addr, q, phone_href, phone_text, hours,
   </div>
 </section>
 """
+    address_short = e(f"Адрес: {full_addr}") if b.get("address") else "Адрес уточните по&nbsp;телефону"
     credits = [STUDIO_PHOTOS["hero"]] + [f"Услуги: {STUDIO_PHOTOS[x]}" for x in dict.fromkeys(used)]
     values = {
         "assets": A,
@@ -280,7 +338,8 @@ def render_studio(b, cfg, city, me, full_addr, q, phone_href, phone_text, hours,
         "hero_title": hero_title,
         "lead": e(f"{name}. Позвоните — подскажем стоимость и время, когда можно подъехать."),
         "facts": facts_html, "marquee": marquee, "services": "\n".join(rows),
-        "address_short": e(f"Адрес: {full_addr}") if b.get("address") else "Адрес уточните по&nbsp;телефону",
+        "steps": steps_html(cfg, phone_href, phone_text, address_short),
+        "preview": used[0] if used else photos[0],
         "nav_rating": '<a href="#rating">Рейтинг</a>' if has_rating else "",
         "rating_section": rating_section, "contacts_num": "04" if has_rating else "03",
         "address": e(full_addr), "hours_text": hours_text,

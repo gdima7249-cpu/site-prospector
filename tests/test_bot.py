@@ -234,6 +234,37 @@ class BotTests(unittest.TestCase):
         self.assertEqual(bot.problem_key({"kind": "site", "a": {"issues": {"no_https": {}}}}), "проблема: не защищено")
         self.assertEqual(bot.problem_key({"kind": "site", "a": {"issues": {"no_description": {}}}}), "проблема: другое")
 
+    def test_tyre_and_wash_cards_demo_and_letter(self):
+        self.b.handle(1, 42, "/start")
+        for niche, phrase, title in (("шиномонтаж", "шиномонтаж", "Шиномонтаж"), ("автомойка", "автомойку", "Автомойка")):
+            with self.subTest(niche=niche):
+                self.b.st["leads"], self.b.st["seen"] = {}, []  # те же компании — заново для второй ниши
+                self.run_search(niche=niche)
+                g = self.lead("Гараж Петровича")
+                self.assertEqual(g["niche"], niche)
+                card = next(m for t, m in self.out if m and "Гараж Петровича" in t and f"demo:{g['id']}" in m)
+                self.assertIn("✅ Сделать демо", json.dumps(json.loads(card), ensure_ascii=False))
+                self.press(f"demo:{g['id']}")
+                html = (self.b.demo_root / g["demo"] / "index.html").read_text(encoding="utf-8")
+                self.assertIn(f'<h1 class="hero__title" data-reveal>{title}<br>', html)
+                for bad in ("Кузовной", "покраск", "вмятин", "что случилось", "svc-body", "svc-paint"):
+                    self.assertNotIn(bad, html)
+                body = g["draft"]["body"]
+                self.assertIn(f"А многие ищут {phrase} именно с телефона.", body)
+                self.assertIn("у вас пока нет сайта", body)
+                self.assertIn(f"http://1.2.3.4:8080/{g['demo']}/", body)
+                self.assertNotIn("кузов", body.lower())
+                self.assertNotIn("{", body)
+                self.assertEqual(g["draft"]["subject"], "Сайт для «Гараж Петровича»")
+
+    def test_tyre_and_wash_aliases(self):
+        niches = leads.load_niches()
+        for text, want in (("шиномонтаж Омск", "шиномонтаж"), ("шиномонтажка Омск", "шиномонтаж"),
+                           ("шины Омск", "шиномонтаж"), ("автомойка Омск", "автомойка"), ("мойка Омск", "автомойка"),
+                           ("автомойки Нижний Новгород", "автомойка")):
+            self.assertEqual(leads.parse_request(text, niches)[0], want, text)
+        self.assertEqual(leads.parse_request("автомойки Нижний Новгород", niches)[1], "Нижний Новгород")
+
     def test_no_email_lead(self):
         self.b.handle(1, 42, "/start")
         self.run_search()
