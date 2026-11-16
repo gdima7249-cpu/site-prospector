@@ -80,6 +80,24 @@ def parse_request(text: str, niches: dict[str, dict]) -> tuple[str, str] | None:
     return None
 
 
+CITIES_FILE = HERE / "cities.json"  # города России от 100 тыс. жителей (обновляются вместе с ботом)
+
+
+def load_cities() -> list[dict]:
+    """[{"name", "region", "tz", "pop_k"}, …] — от крупных к небольшим."""
+    try:
+        data = json.loads(CITIES_FILE.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return []
+    return sorted(data.get("cities", []), key=lambda c: -(c.get("pop_k") or 0))
+
+
+def scheduled_niches(niches: dict[str, dict] | None = None) -> list[str]:
+    """Ниши для ежедневного перебора: все, кроме помеченных "schedule": false (сети, розница)."""
+    niches = niches if niches is not None else load_niches()
+    return [n for n, d in niches.items() if d.get("schedule", True)]
+
+
 # ───────────────────────────── фильтры ─────────────────────────────
 STATE_RE = re.compile(r"\b(ГБУЗ|ГАУЗ|ГБУ|ГАУ|МБУ|МАУ|МБОУ|МБДОУ|МАДОУ|ФГБУ|ФГБОУ|ФГУП|ГУП|МУП|ГКБ|ГУЗ|МУЗ|ОГБУЗ|КГБУЗ)\b"
                       r"|поликлиник|больниц|государствен|муниципальн|республиканск|министерств|управлени[ея] здравоохран",
@@ -174,9 +192,46 @@ def keep(b: dict, skip: set[str]) -> bool:
 
 
 # ───────────────────────────── OpenStreetMap ─────────────────────────────
+COUNTRY_NAMES = {"RU": "Россия", "KZ": "Казахстан", "BY": "Беларусь"}
+CITY_CACHE_FILE = HERE / "city_cache.json"  # границы городов: Nominatim просит не спрашивать одно и то же повторно
+
+
+def _city_cache() -> dict:
+    try:
+        return json.loads(CITY_CACHE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
 def find_city(city: str) -> tuple[float, float, float, float] | None:
-    """Границы города (юг, запад, север, восток) через Nominatim."""
-    params = {"q": city, "format": "json", "limit": 1, "accept-language": "ru", "countrycodes": "ru,by,kz,ua"}
+    """Границы города (юг, запад, север, восток): из city_cache.json или через Nominatim.
+    Для городов из cities.json в запрос добавляется регион — чтобы не перепутать одноимённые города."""
+    key = city.strip().lower()
+    cache = _city_cache()
+    if key in cache:
+        return tuple(cache[key]) if cache[key] else None
+    known = next((c for c in load_cities() if c["name"].lower() == key), {})
+    country = COUNTRY_NAMES.get(known.get("country", ""), "")
+    region = known.get("region", "")
+    exact = ", ".join(x for x in (city, region if region.lower() != key else "", country) if x)
+    box = None
+    for q in ([exact] if known else []) + [city]:
+        box = _nominatim(q)
+        if box:
+            break
+    if box:  # «не нашёл» не запоминаем: могла быть опечатка или временный сбой
+        cache[key] = list(box)
+        try:
+            tmp = CITY_CACHE_FILE.with_suffix(".tmp")
+            tmp.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+            tmp.replace(CITY_CACHE_FILE)
+        except OSError:
+            pass
+    return box
+
+
+def _nominatim(q: str) -> tuple[float, float, float, float] | None:
+    params = {"q": q, "format": "json", "limit": 1, "accept-language": "ru", "countrycodes": "ru,by,kz,ua"}
     r, err = None, ""
     for attempt in range(2):
         try:
@@ -295,10 +350,12 @@ def osm_search(niche: dict, city: str) -> list[dict]:
 
 
 # ───────────────────────────── Яндекс ─────────────────────────────
-def yandex_search(query: str, api_key: str, pages: int = 2) -> list[dict]:
+def yandex_search(query: str, api_key: str, pages: int = 2, _count: list | None = None) -> list[dict]:
     """API поиска по организациям Яндекса: до 50 компаний за запрос. Формат ответа — GeoJSON."""
     found = []
     for page in range(pages):
+        if _count is not None:
+            _count[0] += 1
         params = {"apikey": api_key, "text": query, "type": "biz", "lang": "ru_RU", "results": 50, "skip": page * 50}
         try:
             r = requests.get(YANDEX_ORG_URL, params=params, headers={"User-Agent": UA}, timeout=30)
@@ -322,10 +379,12 @@ def yandex_search(query: str, api_key: str, pages: int = 2) -> list[dict]:
 
 
 # ───────────────────────────── 2ГИС ─────────────────────────────
-def dgis_search(query: str, api_key: str, pages: int = 5) -> list[dict]:
+def dgis_search(query: str, api_key: str, pages: int = 5, _count: list | None = None) -> list[dict]:
     """Catalog API 2ГИС: по 10 компаний на страницу, с рейтингом и числом отзывов."""
     found = []
     for page in range(1, pages + 1):
+        if _count is not None:
+            _count[0] += 1
         params = {"q": query, "key": api_key, "page": page, "page_size": 10, "type": "branch",
                   "fields": "items.contact_groups,items.reviews,items.address,items.schedule"}
         try:
@@ -361,6 +420,73 @@ def dgis_search(query: str, api_key: str, pages: int = 5) -> list[dict]:
     return found
 
 
+# ───────────────────────────── дневные лимиты платных API ─────────────────────────────
+# Сколько запросов в сутки бот делает к Яндексу и 2ГИС. Значения по умолчанию — осторожные, а не тарифы этих сервисов:
+# поставьте свои в config.json → limits → api_per_day ({"yandex": …, "2gis": …}); 0 — не обращаться совсем.
+API_PER_DAY = {"yandex": 200, "2gis": 500}
+USAGE_FILE = HERE / "api_usage.json"
+_api_limits: dict[str, int] = dict(API_PER_DAY)
+
+
+def set_api_limits(limits: dict | None):
+    _api_limits.clear()
+    _api_limits.update(API_PER_DAY)
+    for k, v in (limits or {}).items():
+        try:
+            _api_limits[k] = int(v)
+        except (TypeError, ValueError):
+            pass
+
+
+def _usage() -> dict:
+    today = time.strftime("%Y-%m-%d")
+    try:
+        u = json.loads(USAGE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        u = {}
+    return u if u.get("day") == today else {"day": today, "used": {}, "blocked": {}}
+
+
+def _save_usage(u: dict):
+    try:
+        USAGE_FILE.write_text(json.dumps(u, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def api_left(source: str) -> int:
+    """Сколько запросов к источнику осталось сегодня. 0 — лимит исчерпан или источник сегодня отказал (ключ, 429)."""
+    u = _usage()
+    if u["blocked"].get(source):
+        return 0
+    return max(0, _api_limits.get(source, 0) - u["used"].get(source, 0))
+
+
+def api_spend(source: str, n: int = 1):
+    u = _usage()
+    u["used"][source] = u["used"].get(source, 0) + n
+    _save_usage(u)
+
+
+def api_block(source: str, why: str):
+    """Источник ответил «ключ не подходит» или «слишком много запросов» — до завтра его не трогаем,
+    чтобы не долбить сервис и не тратить деньги на заведомо неудачные запросы."""
+    u = _usage()
+    u["blocked"][source] = why
+    _save_usage(u)
+
+
+def api_usage_text() -> str:
+    u = _usage()
+    parts = []
+    for src, title in (("yandex", "Яндекс"), ("2gis", "2ГИС")):
+        line = f"{title}: {u['used'].get(src, 0)} из {_api_limits.get(src, 0)}"
+        if u["blocked"].get(src):
+            line += f" (сегодня отключён: {u['blocked'][src]})"
+        parts.append(line)
+    return "Запросы к API сегодня — " + ", ".join(parts)
+
+
 def api_keys() -> dict:
     keys = {}
     f = HERE / "keys.json"
@@ -384,15 +510,26 @@ def find_businesses(niche_name: str, niche: dict, city: str) -> tuple[list[dict]
         notes.append(f"OpenStreetMap: {len(osm)}")
     except MapError as e:
         notes.append(f"OpenStreetMap не ответил ({e})")
-    for name, func, key in (("Яндекс", yandex_search, keys["yandex"]), ("2ГИС", dgis_search, keys["2gis"])):
+    for src, name, func, key in (("yandex", "Яндекс", yandex_search, keys["yandex"]),
+                                 ("2gis", "2ГИС", dgis_search, keys["2gis"])):
         if not key:
             continue
+        left = api_left(src)
+        if left <= 0:
+            notes.append(f"{name}: дневной лимит запросов исчерпан")
+            continue
+        pages = min(left, 2 if src == "yandex" else 5)
+        calls = [0]
         try:
-            got = func(query, key)
+            got = func(query, key, pages=pages, _count=calls)
             groups.append(got)
             notes.append(f"{name}: {len(got)}")
         except MapError as e:
             notes.append(f"{name} не ответил ({e})")
+            if any(x in str(e) for x in ("401", "403", "429", "ключ")):
+                api_block(src, str(e))
+        finally:
+            api_spend(src, max(calls[0], 1))
     if not groups:
         raise MapError("; ".join(notes))
     return merge(groups), notes

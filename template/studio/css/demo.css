@@ -39,3 +39,12 @@
 .svc__title { white-space: normal; overflow-wrap: break-word; hyphens: auto; }
 /* очень узкие экраны (iPhone SE 1-го поколения): крупный номер не должен выходить за край */
 @media (max-width: 360px) { .contacts__phone { font-size: 30px; } }
+
+/* Ниши без фото (не автомобильные): вместо снимка — тёмный фон с мягким свечением цвета ниши */
+.hero__plain { position: absolute; inset: 0;
+  background:
+    radial-gradient(60% 70% at 78% 30%, color-mix(in srgb, var(--accent) 38%, transparent) 0%, transparent 70%),
+    radial-gradient(45% 55% at 95% 85%, color-mix(in srgb, var(--accent-2) 22%, transparent) 0%, transparent 70%),
+    linear-gradient(160deg, #141416 0%, var(--bg) 60%);
+}
+.kicker__dot { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent); }

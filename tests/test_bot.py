@@ -17,6 +17,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bot  # noqa: E402
 import leads  # noqa: E402
+
+# служебные файлы источников (кэш городов, счётчик запросов к API) — во временной папке, не в проекте
+_TMP = tempfile.mkdtemp()
+leads.CITY_CACHE_FILE = Path(_TMP) / "city_cache.json"
+leads.USAGE_FILE = Path(_TMP) / "api_usage.json"
 from test_prospector import H  # noqa: E402
 
 
@@ -238,7 +243,7 @@ class BotTests(unittest.TestCase):
         self.b.handle(1, 42, "/start")
         for niche, phrase, title in (("шиномонтаж", "шиномонтаж", "Шиномонтаж"), ("автомойка", "автомойку", "Автомойка")):
             with self.subTest(niche=niche):
-                self.b.st["leads"], self.b.st["seen"] = {}, []  # те же компании — заново для второй ниши
+                self.b.st["leads"], self.b.seen = {}, set()  # те же компании — заново для второй ниши
                 self.run_search(niche=niche)
                 g = self.lead("Гараж Петровича")
                 self.assertEqual(g["niche"], niche)
@@ -277,15 +282,30 @@ class BotTests(unittest.TestCase):
         self.assertIn("нет email", self.last)
         self.assertNotIn(f"send:{g['id']}", self.buttons())
 
-    def test_niche_without_demo(self):
+    def test_demo_for_any_niche(self):
+        """Демо есть у всех ниш: у стоматологии — свои услуги без машин, у своей ниши (/addniche) — из названия."""
         self.b.handle(1, 42, "/start")
         self.run_search(niche="стоматология")
         r = self.lead("Ромашка")
-        self.assertIn("✉️ Письмо без демо", json.dumps(json.loads(next(m for t, m in self.out if m and "Ромашка" in t)), ensure_ascii=False))
+        self.assertIn("✅ Сделать демо", json.dumps(json.loads(next(m for t, m in self.out if m and "Ромашка" in t)), ensure_ascii=False))
         self.press(f"demo:{r['id']}")
-        self.assertNotIn("demo", r)
-        self.assertNotIn("http://1.2.3.4", self.last)
-        self.assertIn(f"send:{r['id']}", self.buttons())
+        html = (self.b.demo_root / r["demo"] / "index.html").read_text(encoding="utf-8")
+        self.assertIn("Лечение кариеса", html)
+        self.assertIn("hero__plain", html)
+        for bad in ("hero-1600", "svc-body", "Фотографии на сайте", "автомобил", "подъехать"):
+            self.assertNotIn(bad, html)
+        self.assertIn("стоматологию именно с телефона", r["draft"]["body"])
+        self.assertIn(f"http://1.2.3.4:8080/{r['demo']}/", self.last)
+        self.b.handle(1, 42, "/addniche вышивка: вышив | low")
+        self.b.seen = set()
+        self.run_search(niche="вышивка")
+        v = self.lead("Ромашка")
+        self.assertEqual(v["niche"], "вышивка")
+        self.press(f"demo:{v['id']}")
+        html = (self.b.demo_root / v["demo"] / "index.html").read_text(encoding="utf-8")
+        self.assertIn("Вышивка", html)
+        self.assertNotIn("hero-1600", html)
+        self.assertIn(f"send:{v['id']}", self.buttons())
 
     def test_limits_pause_and_delay(self):
         self.b.cfg["limits"].update(per_day=1, min_delay_sec=90)
@@ -399,7 +419,7 @@ class BotTests(unittest.TestCase):
             self.assertFalse(self.b.run_schedule_if_due(datetime(2026, 11, 10, 15, 0, tzinfo=tz)))
             self.assertTrue(self.b.run_schedule_if_due(datetime(2026, 11, 11, 9, 0, tzinfo=tz)))
         self.assertEqual(search.call_args.args, (1, "кузовной ремонт", "Омск"))
-        self.assertEqual(search.call_args.kwargs, {"limit": 5})
+        self.assertEqual(search.call_args.kwargs, {"limit": 5, "quiet": True})
 
     def test_schedule_cities_rotation(self):
         self.b.cfg["schedule"] = {"time": "09:00", "tz": "Europe/Moscow", "max_cards": 5, "max_searches": 3,
@@ -410,7 +430,7 @@ class BotTests(unittest.TestCase):
         tz = ZoneInfo("Europe/Moscow")
         calls = []
 
-        def fake_search(chat, niche, city, limit):
+        def fake_search(chat, niche, city, limit, quiet=False):
             calls.append(f"{niche} {city}")
             self.b.busy.release()
             return 0  # карточек нет — бот идёт дальше, но не больше max_searches запросов
@@ -431,7 +451,9 @@ class BotTests(unittest.TestCase):
         self.assertIn("Сегодня отправлено: 0 из 20", self.last)
         self.assertIn("Ссылки на демо: http://1.2.3.4:8080", self.last)
         self.b.handle(1, 42, "/niches")
-        self.assertIn("кузовной ремонт 🖼", self.last)
+        self.assertIn("Демо бот делает для любой", self.last)
+        self.assertIn("кафе ⏸", self.last)  # не входит в ежедневный поиск
+        self.assertNotIn("стоматология ⏸", self.last)
         self.b.handle(1, 42, "/addniche Натяжные потолки люкс: потолк, натяжн | high")
         self.assertIn("Добавил нишу", self.last)
 
@@ -505,6 +527,85 @@ class BotTests(unittest.TestCase):
         self.assertEqual(day(11), [])  # второй круг
         self.make_bot(self.b.cfg)  # перезапуск службы
         self.assertEqual(day(12), [])
+
+    # ——— работа месяцами: все города и ниши, без повторов, без потери кандидатов ———
+    def test_schedule_all_cities_and_niches(self):
+        self.b.cfg["schedule"] = {"time": "09:00", "niches": "все", "cities": "все"}
+        cities, niches = self.b.schedule_cities(), self.b.schedule_niches()
+        self.assertGreaterEqual(len(cities), 200)
+        self.assertEqual(cities[:3], ["Москва", "Санкт-Петербург", "Алматы"])  # от крупных к небольшим
+        self.assertIn("Минск", cities)
+        self.assertGreaterEqual(len(niches), 55)
+        self.assertNotIn("кафе", niches)
+        qs = self.b.schedule_queries()
+        self.assertEqual(len(qs), len(cities) * len(niches))
+        all_niches = leads.load_niches()
+        for q in qs:  # каждый запрос расписания понимается ботом ровно так, как задуман
+            n, c = leads.parse_request(q, all_niches)
+            self.assertEqual(f"{n} {c}", q)
+        self.b.cfg["schedule"]["countries"] = ["RU"]
+        self.assertEqual(len(self.b.schedule_cities()), 172)
+        del self.b.cfg["schedule"]["cities"]  # не задано — тоже все города
+        self.assertEqual(len(self.b.schedule_cities()), 172)
+        self.b.handle(1, 42, "/status")
+        self.assertIn("городов", self.last)
+        self.assertIn("Запросы к API сегодня", self.last)
+
+    def test_unshown_good_leads_come_back(self):
+        """Хорошие кандидаты, которым не хватило дневного лимита карточек, не теряются: придут в следующий раз."""
+        nb = leads.new_business
+        self.b.handle(1, 42, "/start")
+        found = [nb(name=f"Гараж {i}", phone=f"+7 900 000 00 {i:02d}", reviews=70, sources=["2ГИС"]) for i in range(5)]
+        with mock.patch.object(leads, "find_businesses", return_value=([dict(b) for b in found], ["2ГИС: 5"])):
+            first = self.b.search(1, "автосервис", "Омск", limit=2, quiet=True)
+        self.assertEqual(first, 2)
+        with mock.patch.object(leads, "find_businesses", return_value=([dict(b) for b in found], ["2ГИС: 5"])):
+            second = self.b.search(1, "автосервис", "Омск", limit=10, quiet=True)
+        self.assertEqual(second, 3)
+        self.assertEqual(len(self.b.st["leads"]), 5)
+        self.assertIn("📍 автосервис · Омск", self.out[-1][0])
+
+    def test_seen_moves_out_of_state_file(self):
+        bot.STATE.write_text(json.dumps({"owner": 42, "owner_chat": 1, "seen": ["tel:9001112233", "x.ru"]}), encoding="utf-8")
+        self.make_bot(json.loads(json.dumps(CONFIG)))
+        self.assertEqual(self.b.seen, {"tel:9001112233", "x.ru"})
+        self.b.save()
+        self.assertEqual(json.loads(bot.STATE.read_text(encoding="utf-8"))["seen"], [])
+        self.make_bot(json.loads(json.dumps(CONFIG)))  # после перезапуска — из seen.txt
+        self.assertEqual(self.b.seen, {"tel:9001112233", "x.ru"})
+        nb = leads.new_business
+        names = self.search_with([nb(name="Старый", phone="+7 900 111 22 33", reviews=40, sources=["OSM"]),
+                                  nb(name="Новый", phone="+7 900 111 22 44", reviews=40, sources=["OSM"])])
+        self.assertEqual(names, ["Новый"])
+
+    def test_schedule_waits_when_sources_are_down(self):
+        """Карты не отвечают — бот не «проматывает» очередь: те же запросы повторит завтра."""
+        self.b.cfg["schedule"] = {"time": "09:00", "tz": "Europe/Moscow", "max_cards": 5, "max_searches": 10,
+                                  "niches": ["автосервис", "шиномонтаж"], "cities": ["Омск", "Тула", "Казань"]}
+        self.b.handle(1, 42, "/start")
+        tz = ZoneInfo("Europe/Moscow")
+        with mock.patch.object(leads, "find_businesses", side_effect=leads.MapError("Overpass перегружен")):
+            self.b.run_schedule_if_due(datetime(2026, 11, 10, 9, 0, tzinfo=tz))
+        self.assertEqual(self.b.st["sched_pos"], 0)
+        self.assertIn("остальное завтра", self.last)
+        self.assertEqual(bot.time.sleep.call_count, 2)  # пауза между запросами к картам
+
+    def test_telegram_retry(self):
+        b = bot.Bot("TOKEN", json.loads(json.dumps(CONFIG)))
+        r429 = mock.Mock(status_code=429)
+        r429.json.return_value = {"parameters": {"retry_after": 7}}
+        ok = mock.Mock(status_code=200)
+        ok.json.return_value = {"result": {"message_id": 1}}
+        with mock.patch.object(bot.requests, "post", side_effect=[r429, bot.requests.ConnectionError(), ok]) as post:
+            self.assertEqual(b.call("sendMessage", chat_id=1, text="x"), {"message_id": 1})
+        self.assertEqual(post.call_count, 3)
+        self.assertEqual(bot.time.sleep.call_args_list[0].args[0], 7)
+
+    def test_trim_leads_keeps_sent(self):
+        with mock.patch.object(bot, "KEEP_LEADS", 3):
+            self.b.st["leads"] = {str(i): {"status": "sent" if i < 2 else "new"} for i in range(6)}
+            self.b.trim_leads()
+        self.assertEqual(sorted(self.b.st["leads"]), ["0", "1", "5"])
 
     def test_old_state_format(self):
         bot.STATE.write_text('{"owner": 1, "offset": 5, "seen": [], "skip": [], "last": [{"b": {}}]}', encoding="utf-8")

@@ -24,7 +24,7 @@
   var hero = $('.hero');
   var heroImg = $('.hero__media img');
   var heroReady = function () { requestAnimationFrame(function () { hero.classList.add('is-loaded'); }); };
-  if (heroImg.complete) heroReady(); else heroImg.addEventListener('load', heroReady);
+  if (!heroImg || heroImg.complete) heroReady(); else heroImg.addEventListener('load', heroReady);
   $$('.hero [data-reveal]').forEach(function (el, i) { el.style.setProperty('--d', (0.15 + i * 0.12).toFixed(2)); });
 
   /* ---------- Мобильное меню ---------- */

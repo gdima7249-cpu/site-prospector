@@ -9,6 +9,11 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import leads  # noqa: E402
+
+# служебные файлы источников (кэш городов, счётчик запросов к API) — во временной папке, не в проекте
+_TMP = tempfile.mkdtemp()
+leads.CITY_CACHE_FILE = Path(_TMP) / "city_cache.json"
+leads.USAGE_FILE = Path(_TMP) / "api_usage.json"
 import prospector as p  # noqa: E402
 
 
@@ -224,8 +229,73 @@ class Sources(unittest.TestCase):
         denied = mock.Mock(status_code=403, text="blocked")
         with mock.patch.object(leads.requests, "get", return_value=denied), mock.patch.object(leads.time, "sleep"), \
                 self.assertRaises(leads.MapError) as cm:
-            leads.find_city("Казань")
+            leads.find_city("Тула")  # Казань уже в кэше городов — сеть не нужна
         self.assertIn("HTTP 403", str(cm.exception))
+
+
+class Scale(unittest.TestCase):
+    """Города, ниши и дневные лимиты для работы месяцами."""
+    def setUp(self):
+        for f in (leads.CITY_CACHE_FILE, leads.USAGE_FILE):
+            f.unlink(missing_ok=True)
+        leads.set_api_limits(None)
+
+    def test_cities_file(self):
+        cities = leads.load_cities()
+        names = [c["name"] for c in cities]
+        self.assertEqual(len(names), len(set(names)))
+        by_country = {}
+        for c in cities:
+            by_country[c["country"]] = by_country.get(c["country"], 0) + 1
+            self.assertGreaterEqual(c["pop_k"], 100)
+            leads_tz = __import__("zoneinfo").ZoneInfo(c["tz"])  # часовой пояс существует
+            self.assertIsNotNone(leads_tz)
+        self.assertEqual(by_country, {"RU": 172, "KZ": 21, "BY": 8})
+        self.assertEqual(names[0], "Москва")
+        import demo_builder
+        self.assertEqual(demo_builder.city_tz("Петропавловск-Камчатский"), "Asia/Kamchatka")
+        self.assertEqual(demo_builder.city_tz("Алматы"), "Asia/Aqtobe")
+        self.assertEqual(demo_builder.city_tz("Нигдеевск"), "Europe/Moscow")
+
+    def test_all_niches_have_demo_or_are_off_schedule(self):
+        niches = leads.load_niches()
+        for name in leads.scheduled_niches(niches):
+            demo = niches[name].get("demo")
+            self.assertTrue(demo and demo.get("services") and demo.get("what"), name)
+
+    def test_find_city_uses_region_and_cache(self):
+        with mock.patch.object(leads.requests, "get", return_value=NOMINATIM) as get:
+            box = leads.find_city("Королёв")
+            self.assertEqual(get.call_args.kwargs["params"]["q"], "Королёв, Московская область, Россия")
+            self.assertEqual(leads.find_city("королёв "), box)  # второй раз — из city_cache.json
+            self.assertEqual(get.call_count, 1)
+            leads.find_city("Гомель")
+            self.assertEqual(get.call_args.kwargs["params"]["q"], "Гомель, Гомельская область, Беларусь")
+
+    def test_api_daily_limit_and_block(self):
+        leads.set_api_limits({"2gis": 6})
+        biz = [leads.new_business(name="Б", phone="1234567890", sources=["2ГИС"])]
+        keys = {"yandex": "", "2gis": "K"}
+        with mock.patch.object(leads, "api_keys", return_value=keys), \
+                mock.patch.object(leads, "osm_search", return_value=[]), \
+                mock.patch.object(leads, "dgis_search", return_value=biz) as dg:
+            leads.find_businesses("автосервис", {}, "Омск")
+            self.assertEqual(dg.call_args.kwargs["pages"], 5)
+            leads.find_businesses("автосервис", {}, "Тула")
+            self.assertEqual(dg.call_args.kwargs["pages"], 5)  # потрачено 2 из 6 (заглушка не листает страницы)
+            self.assertEqual(leads.api_left("2gis"), 4)
+            leads.api_spend("2gis", 4)
+            _, notes = leads.find_businesses("автосервис", {}, "Казань")
+            self.assertEqual(dg.call_count, 2)
+            self.assertIn("2ГИС: дневной лимит запросов исчерпан", notes)
+        leads.USAGE_FILE.unlink()
+        with mock.patch.object(leads, "api_keys", return_value=keys), \
+                mock.patch.object(leads, "osm_search", return_value=[]), \
+                mock.patch.object(leads, "dgis_search", side_effect=leads.MapError("2ГИС: HTTP 403 — доступ запрещён")) as dg:
+            leads.find_businesses("автосервис", {}, "Омск")
+            leads.find_businesses("автосервис", {}, "Тула")
+        self.assertEqual(dg.call_count, 1)  # после отказа ключа — до завтра не трогаем
+        self.assertIn("отключён", leads.api_usage_text())
 
 
 class Scoring(unittest.TestCase):
