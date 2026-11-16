@@ -496,7 +496,11 @@ class Bot:
                     L.update(id=i, niche=niche_name, city=city, status="new")
                     self.st["leads"][i] = L
                     ids.append(i)
-                self.st["seen"] += [leads.business_key(L["b"]) for L in rows]
+                # все признаки компании (домен, телефоны, почта): в другой день она может прийти из другого
+                # источника уже с сайтом или другим первым телефоном — и всё равно не повторится
+                seen = set(self.st["seen"])
+                new_keys = (k for L in rows for k in leads.business_keys(L["b"]))
+                self.st["seen"] += [k for k in dict.fromkeys(new_keys) if k not in seen]
                 self.st["last"] = ids
                 if len(self.st["leads"]) > 1000:  # не раздувать файл состояния
                     for old in list(self.st["leads"])[:-1000]:
@@ -537,7 +541,7 @@ class Bot:
         if not L:
             return self.say(chat, "Этого кандидата уже нет в памяти бота. Повторите поиск.")
         if action == "skip":
-            self.st["skip"].append(leads.business_key(L["b"]))
+            self.st["skip"] += [k for k in leads.business_keys(L["b"]) if k not in self.st["skip"]]
             L["status"] = "skipped"
             self.save()
             return self.say(chat, f"«{L['b']['name']}» больше не покажу.")

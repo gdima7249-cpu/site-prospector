@@ -422,6 +422,59 @@ class BotTests(unittest.TestCase):
         finally:
             srv.shutdown()
 
+    def card_names(self):
+        return [t.split(". ", 1)[1].split("\n")[0].split(" · ")[0] for t, m in self.out if m and t[:1].isdigit()]
+
+    def search_with(self, found, query="кузовной ремонт Омск"):
+        self.out.clear()
+        with mock.patch.object(leads, "find_businesses", return_value=(found, ["2ГИС: 1"])):
+            self.b.handle(1, 42, query)
+        return self.card_names()
+
+    def test_no_repeats_when_business_changes_key(self):
+        """Компания, уже показанная без сайта, приходит позже из другого источника — с сайтом и телефонами
+        в другом порядке. Её главный признак (домен вместо телефона) другой, но показывать её снова нельзя."""
+        nb = leads.new_business
+        self.b.handle(1, 42, "/start")
+        first = [nb(name="Гараж Петровича", phone="+7 (913) 222-33-44", reviews=70, hours="Mo-Fr 09:00-18:00",
+                    sources=["OSM"]),
+                 nb(name="Кузов-Мастер", phone="+7 900 555 66 77; +7 900 555 66 78", reviews=40, sources=["OSM"])]
+        self.assertEqual(sorted(self.search_with(first)), ["Гараж Петровича", "Кузов-Мастер"])
+        self.press(f"skip:{self.lead('Кузов-Мастер')['id']}")
+        later = [nb(name="Гараж Петровича", site=self.old, phone="+7 913 222 33 44", reviews=70, sources=["2ГИС"]),
+                 nb(name="Кузов Мастер", phone="+7 900 555 66 78; +7 900 555 66 77", email="km@mail.ru",
+                    reviews=40, sources=["2ГИС"]),
+                 nb(name="Новый", phone="+7 900 999 00 00", reviews=40, sources=["2ГИС"])]
+        self.assertEqual(self.search_with(later), ["Новый"])
+        # после перезапуска (новый процесс читает bot_state.json) — тоже без повторов
+        self.make_bot(json.loads(json.dumps(CONFIG)))
+        self.assertEqual(self.search_with(later + [nb(name="Ещё", phone="+7 900 999 00 01", sources=["2ГИС"])]),
+                         ["Ещё"])
+
+    def test_schedule_full_circle_no_repeats(self):
+        """Расписание прошло все запросы и пошло по второму кругу, бот при этом перезапускался —
+        те же компании снова не показываются (OpenStreetMap отдаёт их каждый раз)."""
+        nb = leads.new_business
+        self.b.cfg["schedule"] = {"time": "09:00", "tz": "Europe/Moscow", "max_cards": 10, "max_searches": 2,
+                                  "niches": ["автосервис", "шиномонтаж"], "cities": ["Омск"]}
+        self.b.handle(1, 42, "/start")
+        by_query = {"автосервис": [nb(name="Сервис 1", phone="+7 900 000 00 01", reviews=40, sources=["OSM"]),
+                                   nb(name="Общий", phone="+7 900 000 00 03", reviews=40, sources=["OSM"])],
+                    "шиномонтаж": [nb(name="Шины 1", phone="+7 900 000 00 02", reviews=40, sources=["OSM"]),
+                                   nb(name="Общий", phone="+7 900 000 00 03", reviews=40, sources=["OSM"])]}
+        tz = ZoneInfo("Europe/Moscow")
+
+        def day(n):
+            self.out.clear()
+            with mock.patch.object(leads, "find_businesses",
+                                   side_effect=lambda name, niche, city: ([dict(b) for b in by_query[name]], ["OSM"])):
+                self.assertTrue(self.b.run_schedule_if_due(datetime(2026, 11, n, 9, 0, tzinfo=tz)))
+            return self.card_names()
+        self.assertEqual(sorted(day(10)), ["Общий", "Сервис 1", "Шины 1"])
+        self.assertEqual(day(11), [])  # второй круг
+        self.make_bot(self.b.cfg)  # перезапуск службы
+        self.assertEqual(day(12), [])
+
     def test_old_state_format(self):
         bot.STATE.write_text('{"owner": 1, "offset": 5, "seen": [], "skip": [], "last": [{"b": {}}]}', encoding="utf-8")
         st = bot.load_state()
