@@ -1,0 +1,95 @@
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&amp;display=swap">
+  <style>
+    /* Красота: тёплый светлый фон, крупная антиква по центру, прайс как в журнале — с точками до правого края */
+    :root { --bg: #faf5f2; --surface: #fffdfb; --fg: #2b1d22; --muted: #7c6a70; --line: #ecdfd9; --accent: #e0679b; --on-accent: #fff;
+      --radius: 999px; --display: "Cormorant Garamond", "Playfair Display", Georgia, "Times New Roman", serif; }
+    .hdr .wrap { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; min-height: 76px; gap: 16px; }
+    .hdr nav { display: flex; gap: 22px; font-size: 14px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+    .hdr nav a { text-decoration: none; }
+    .brand { font: 600 26px/1.1 var(--display); text-decoration: none; text-align: center; }
+    .hdr__right { justify-self: end; display: flex; align-items: center; gap: 16px; }
+    .hdr__phone { text-decoration: none; font-weight: 500; white-space: nowrap; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 50px; padding: 0 28px; border-radius: 999px; text-decoration: none;
+      font-weight: 500; letter-spacing: .04em; border: 1px solid var(--fg); }
+    .btn--accent { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+    .hero { text-align: center; padding: 64px 0 80px; position: relative; overflow: hidden; }
+    .hero::before { content: ""; position: absolute; width: 640px; height: 640px; left: 50%; top: 40px; transform: translateX(-50%); border-radius: 50%;
+      background: radial-gradient(circle, color-mix(in srgb, var(--accent) 22%, transparent), transparent 65%); z-index: -1; }
+    .kicker { font-size: 13px; letter-spacing: .22em; text-transform: uppercase; color: var(--muted); }
+    .hero h1 { font: 500 clamp(52px, 9vw, 120px)/.95 var(--display); letter-spacing: -.01em; margin-top: 22px; }
+    .hero h1 em { display: block; font-style: italic; color: var(--accent); }
+    .ornament { width: 72px; height: 1px; background: var(--fg); margin: 28px auto; opacity: .4; }
+    .lead { color: var(--muted); font-size: 19px; max-width: 44ch; margin: 0 auto; }
+    .cta { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 32px; }
+    .facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 0; margin-top: 44px; border-block: 1px solid var(--line); }
+    .fact { padding: 18px 28px; display: grid; gap: 2px; }
+    .fact + .fact { border-left: 1px solid var(--line); }
+    .fact b { font: 600 24px/1.1 var(--display); } .fact span { font-size: 13px; color: var(--muted); }
+    section.block { padding: 80px 0; }
+    .eyebrow { text-align: center; font-size: 13px; letter-spacing: .22em; text-transform: uppercase; color: var(--accent); }
+    h2 { text-align: center; font: 500 clamp(38px, 5vw, 60px)/1.05 var(--display); margin: 10px 0 40px; }
+    .services { max-width: 760px; margin: 0 auto; display: grid; gap: 4px; }
+    .svc { display: flex; align-items: baseline; gap: 12px; padding: 16px 0; }
+    .svc__n { display: none; }
+    .svc__t { font: 500 clamp(22px, 3vw, 28px)/1.2 var(--display); }
+    .svc::after { content: ""; order: 2; flex: 1; border-bottom: 1px dotted color-mix(in srgb, var(--fg) 35%, transparent); transform: translateY(-6px); min-width: 24px; }
+    .svc__p { order: 3; color: var(--muted); font-size: 14px; white-space: nowrap; }
+    .note { text-align: center; color: var(--muted); font-size: 15px; margin-top: 28px; }
+    .how { background: var(--surface); }
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; text-align: center; }
+    .step { display: grid; gap: 10px; justify-items: center; }
+    .step__n { font: italic 500 54px/1 var(--display); color: var(--accent); }
+    .step h3 { font: 600 26px/1.1 var(--display); }
+    .step p { color: var(--muted); max-width: 30ch; }
+    .rating__box { max-width: 640px; margin: 0 auto; text-align: center; display: grid; gap: 10px; justify-items: center; }
+    .rating__num { font: 500 110px/1 var(--display); }
+    .rating__stars { color: var(--accent); font-size: 22px; letter-spacing: 6px; }
+    .rating p { color: var(--muted); }
+    .contacts .card { max-width: 820px; margin: 0 auto; background: var(--surface); border: 1px solid var(--line); border-radius: 28px; overflow: hidden;
+      display: grid; grid-template-columns: 1fr 1fr; }
+    .contacts .info { padding: 36px; display: grid; gap: 14px; align-content: center; text-align: center; justify-items: center; }
+    .contacts .info a.big { font: 600 32px/1.1 var(--display); text-decoration: none; }
+    .contacts .info p { color: var(--muted); }
+    footer { text-align: center; padding: 40px 0 56px; color: var(--muted); font-size: 14px; }
+    footer .name { font: 500 34px/1 var(--display); color: var(--fg); margin-bottom: 10px; }
+    @media (max-width: 860px) { .hdr nav { display: none; } .hdr .wrap { grid-template-columns: 1fr auto; } .brand { text-align: left; } .hdr .btn { display: none; }
+      .steps, .contacts .card { grid-template-columns: 1fr; } .fact + .fact { border-left: 0; } .facts { border-bottom: 0; } .fact { border-bottom: 1px solid var(--line); width: 100%; }
+      .svc { flex-wrap: wrap; } .svc::after { display: none; } .svc__p { width: 100%; } }
+  </style>
+</head>
+$top
+<header class="hdr"><div class="wrap">
+  <nav aria-label="Меню"><a href="#services">Услуги</a><a href="#how">Запись</a>$nav_rating</nav>
+  <a class="brand" href="#top">$name</a>
+  <div class="hdr__right"><a class="hdr__phone" href="$phone_href">$phone_text</a><a class="btn btn--accent" href="$phone_href">Записаться</a></div>
+</div></header>
+<main id="main">
+<section class="hero" id="top"><div class="wrap">
+  <p class="kicker">$kicker</p>
+  <h1>$hero_head<em>$hero_rest</em></h1>
+  <div class="ornament"></div>
+  <p class="lead">$lead</p>
+  <div class="cta"><a class="btn btn--accent" href="$phone_href">Записаться</a><a class="btn" href="$route_href" target="_blank" rel="noopener">Как нас найти</a></div>
+  <ul class="facts">$facts</ul>
+</div></section>
+<section class="block" id="services"><div class="wrap">
+  <p class="eyebrow">Услуги</p><h2>Что мы делаем</h2>
+  <ul class="services">$services</ul>
+  <p class="note">Цены появятся на сайте после согласования с вами. Сейчас — уточняйте по телефону.</p>
+</div></section>
+<section class="block how" id="how"><div class="wrap">
+  <p class="eyebrow">Запись</p><h2>Как к нам попасть</h2>
+  <ol class="steps">$steps</ol>
+</div></section>
+$rating_block
+<section class="block contacts" id="contacts"><div class="wrap">
+  <p class="eyebrow">Контакты</p><h2>Ждём вас</h2>
+  <div class="card">
+    <div class="info"><a class="big" href="$phone_href">$phone_text</a><p>$address</p><p><span class="open" data-open-status>$hours_short</span></p><p>$hours_text</p>
+      <a class="btn btn--accent" href="$route_href" target="_blank" rel="noopener">Построить маршрут</a></div>
+    <iframe class="map" title="$name на карте" src="$map_src" loading="lazy"></iframe>
+  </div>
+</div></section>
+</main>
+<footer><div class="wrap"><p class="name">$name</p><p>$footer_line · Демо-концепт сайта · © <span data-year>2026</span></p></div></footer>

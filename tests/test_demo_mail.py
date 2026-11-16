@@ -77,6 +77,30 @@ class Demo(unittest.TestCase):
             self.assertIsNone(re.search(r"\$[a-z_]+", page3))
 
 
+    def test_group_designs(self):
+        """У каждой группы ниш свой сайт; каждая ниша из niches.json собирается без пустых подстановок."""
+        niches = leads.load_niches()
+        b = leads.new_business(name="Тест <u>", phone="+7 900 111 22 33", address="улица Мира, 1", hours="Mo-Fr 09:00-18:00",
+                               rating=4.5, reviews=12, sources=["2ГИС"])
+        marks = {"studio": "hero__title", "clinic": "Регистратура", "beauty": "Cormorant", "craft": "Узнать стоимость",
+                 "expert": "Получить консультацию", "school": "Записаться на занятие", "service": "class=\"side\""}
+        seen = set()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name, niche in niches.items():
+                design = d.demo_config(name, niche).get("design", "studio")
+                seen.add(design)
+                tok = d.build_demo(b, name, niche, "Омск", {"name": "Д"}, root)
+                page = (root / tok / "index.html").read_text(encoding="utf-8")
+                self.assertIsNone(re.search(r"\$[a-z_]+|\$\{", page), name)
+                self.assertIn(marks[design], page, name)
+                self.assertNotIn("<u>", page)
+                self.assertIn('data-tz="Asia/Omsk"', page)
+            self.assertEqual(seen, set(marks))
+            for f in ("groups/base.css", "groups/common.js", "studio/fonts/inter-cyrillic-wght-normal.woff2"):
+                self.assertTrue((root / "_assets" / f).exists(), f)
+            self.assertFalse((root / "_assets" / "groups" / "clinic.body.html").exists())
+
     def test_build_studio(self):
         niches = leads.load_niches()
         b = leads.new_business(name="Кузов <b>&</b> Ко", phone="+7 (913) 977-45-07", address="ул. Заводская, 1/2",

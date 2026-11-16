@@ -19,6 +19,16 @@ HERE = Path(__file__).resolve().parent
 TPL = HERE / "template" / "demo.tpl.html"
 IMG = HERE / "template" / "img"
 STUDIO = HERE / "template" / "studio"
+GROUPS = HERE / "template" / "groups"
+# Свои сайты для групп ниш (у ниши — demo → design). studio — тёмный автомобильный эталон kuzovomsk-site.
+GROUP_DESIGNS = {
+    "clinic": "медицина: светлый, спокойный, «регистратура» на первом экране",
+    "beauty": "красота: тёплый фон, антиква, прайс с точками",
+    "craft": "ремонт и стройка: бетон и чёрные плашки, крупный текст капсом",
+    "expert": "юристы, бухгалтеры, недвижимость: бумага, синие чернила, строгая вёрстка",
+    "school": "обучение, дети, спорт: яркие скруглённые карточки",
+    "service": "бытовые услуги и заказы: «визитка» с закреплённой карточкой контактов",
+}
 
 DAYS = {"mo": 1, "tu": 2, "we": 3, "th": 4, "fr": 5, "sa": 6, "su": 7}
 DAY_RU = {1: "Пн", 2: "Вт", 3: "Ср", 4: "Чт", 5: "Пт", 6: "Сб", 7: "Вс"}
@@ -54,7 +64,7 @@ def demo_config(niche_name: str, niche: dict) -> dict:
     title = niche_name.strip()
     title = title[:1].upper() + title[1:]
     return {"what": title, "hero": [title, ""], "services": [title, "Консультация по телефону"],
-            "steps": "visit", "photos": []}
+            "steps": "visit", "photos": [], "design": "service"}
 
 ICON = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" '
         'stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>')
@@ -240,7 +250,13 @@ def build_demo(b: dict, niche_name: str, niche: dict, city: str, me: dict, out_r
         "final_title": "Позвоните — подскажем цену", "final_text": preset(cfg)["final"],
         "footer": e(f"{name}, {city}"),
     }
-    if template == "studio":
+    design = cfg.get("design") or "studio"
+    if template == "studio" and design != "studio":
+        if design not in GROUP_DESIGNS:
+            raise ValueError(f"нет дизайна «{design}» (есть: studio, {', '.join(GROUP_DESIGNS)})")
+        page = render_group(design, b, cfg, city, me, full_addr, q, phone_href, phone_text, hours, hours_text)
+        assets = "../_assets/studio/"
+    elif template == "studio":
         page = render_studio(b, cfg, city, me, full_addr, q, phone_href, phone_text, hours, hours_text)
         assets = "../_assets/studio/"
     else:
@@ -252,6 +268,8 @@ def build_demo(b: dict, niche_name: str, niche: dict, city: str, me: dict, out_r
     (d / "index.html").write_text(page, encoding="utf-8")
     if assets:
         # общие файлы дизайна (стили, шрифты, фото) — одна копия на все демо
+        shutil.copytree(GROUPS, out_root / "_assets" / "groups", dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns("*.html"))
         shutil.copytree(STUDIO, out_root / "_assets" / "studio", dirs_exist_ok=True,
                         ignore=shutil.ignore_patterns("*.tpl.html"))
     else:
@@ -351,7 +369,8 @@ def typo(s: str) -> str:
     return re.sub(r"^(в|и|на|по|до|с|к|о|у|за|от|без|не)\s", r"\1&nbsp;", s, flags=re.I).replace(" —", "&nbsp;—")
 
 
-def steps_html(cfg: dict, phone_href: str, phone_text: str, address_short: str) -> str:
+def steps_html(cfg: dict, phone_href: str, phone_text: str, address_short: str,
+               item: str = '      <li data-reveal><span class="steps__n">{n:02d}</span><h3>{title}</h3><p>{text}</p></li>') -> str:
     steps = cfg.get("steps") or DEFAULT_STEPS
     if isinstance(steps, str):
         steps = preset(cfg)["steps"]
@@ -361,8 +380,7 @@ def steps_html(cfg: dict, phone_href: str, phone_text: str, address_short: str) 
     out = []
     for i, st in enumerate(steps, 1):
         text = typo(html.escape(st["text"])).replace("{телефон}", phone).replace("{адрес}", address_short)
-        out.append(f'      <li data-reveal><span class="steps__n">{i:02d}</span><h3>{typo(html.escape(st["title"]))}</h3>'
-                   f'<p>{text}</p></li>')
+        out.append(item.format(n=i, title=typo(html.escape(st["title"])), text=text))
     return "\n".join(out)
 
 
@@ -484,3 +502,61 @@ def render_studio(b, cfg, city, me, full_addr, q, phone_href, phone_text, hours,
         "footer_line": e(full_addr),
     }
     return Template((STUDIO / "index.tpl.html").read_text(encoding="utf-8")).substitute(values)
+
+
+def render_group(design, b, cfg, city, me, full_addr, q, phone_href, phone_text, hours, hours_text) -> str:
+    """Сайт группы ниш: template/groups/<design>.body.html между общими _head, _top и _bottom."""
+    e = html.escape
+    A = "../_assets/"
+    name = b["name"].strip()
+    if cfg.get("hero"):
+        head, rest = cfg["hero"][0], cfg["hero"][1] if len(cfg["hero"]) > 1 else ""
+    else:
+        words = cfg["what"].split()
+        head, rest = " ".join(words[:2]), " ".join(words[2:])
+    has_rating = b.get("rating") is not None and b.get("reviews")
+    facts = []
+    if has_rating:
+        n = int(b["reviews"])
+        r = f"{float(b['rating']):.1f}".replace(".", ",")
+        src = "2ГИС" if "2ГИС" in b.get("sources", []) else "картах"
+        facts.append((f"{r} ★", f"{n} {plural(n, 'отзыв', 'отзыва', 'отзывов')} в&nbsp;{src}"))
+    if hours:
+        first = hours_human(hours).split("<br>")[0]
+        facts.append((e(first.split(" ", 1)[1]), e(first.split(" ", 1)[0])) if " " in first else (e(first), "режим работы"))
+    if b.get("address"):
+        facts.append((e(b["address"]), e(city)))
+    facts_html = "".join(f'<li class="fact"><b>{x}</b><span>{y}</span></li>' for x, y in facts[:3])
+    services = "\n".join(f'    <li class="svc"><span class="svc__n">{i:02d}</span><span class="svc__t">{e(s)}</span>'
+                         f'<span class="svc__p">уточняйте по&nbsp;телефону</span></li>' for i, s in enumerate(cfg["services"], 1))
+    address_short = e(f"Адрес: {full_addr}") if b.get("address") else "Адрес уточните по&nbsp;телефону"
+    steps = steps_html(cfg, phone_href, phone_text, address_short,
+                       '    <li class="step"><span class="step__n">{n}</span><h3>{title}</h3><p>{text}</p></li>')
+    rating_block = ""
+    if has_rating:
+        stars = "★" * round(float(b["rating"])) + "☆" * (5 - round(float(b["rating"])))
+        rating_block = (f'<section class="block rating" id="rating"><div class="wrap"><p class="eyebrow">Рейтинг</p>'
+                        f'<h2>Что пишут клиенты</h2><div class="rating__box"><span class="rating__num">{r}</span><div>'
+                        f'<span class="rating__stars" aria-label="{r} из 5">{stars}</span><p>{n} '
+                        f'{plural(n, "отзыв", "отзыва", "отзывов")} в&nbsp;{src} на&nbsp;{date.today().strftime("%d.%m.%Y")}. '
+                        f'На&nbsp;сайте здесь будет пересказ ваших настоящих отзывов.</p></div></div></div></section>')
+    parts = {k: (GROUPS / f"{k}.html").read_text(encoding="utf-8") for k in ("_head", "_top", "_bottom")}
+    body = (GROUPS / f"{design}.body.html").read_text(encoding="utf-8").replace("$top", parts["_top"])
+    values = {
+        "assets": A, "title": e(f"{name} — {cfg['what']}, {city}"),
+        "description": e(f"{cfg['what']}. {full_addr}. Телефон {phone_text}."),
+        "tz": city_tz(city), "hours_json": json.dumps(hours or {}), "accent_style": accent_style(cfg),
+        "plaque_full": e(f"Демо-концепт сайта для «{name}», подготовил {me.get('name', '')}. Это не официальный сайт: "
+                         "данные взяты из открытых источников и могут быть неточны."),
+        "name": e(name), "what": e(cfg["what"]), "kicker": e(full_addr),
+        "hero_head": e(head), "hero_rest": e(rest),
+        "lead": e(f"{name}. {cfg.get('lead') or preset(cfg)['lead']}"),
+        "phone_href": phone_href, "phone_text": e(phone_text or "телефон уточняется"),
+        "route_href": f"https://yandex.ru/maps/?text={q}", "hours_short": e(hours_one_line(hours)),
+        "facts": facts_html, "services": services, "steps": steps, "rating_block": rating_block,
+        "nav_rating": '<a href="#rating">Рейтинг</a>' if has_rating else "",
+        "address": e(full_addr), "hours_text": hours_text,
+        "map_src": f"https://yandex.ru/map-widget/v1/?mode=search&amp;text={q}&amp;z=16",
+        "footer_line": e(full_addr),
+    }
+    return Template(parts["_head"] + body + parts["_bottom"]).substitute(values)

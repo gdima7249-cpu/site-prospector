@@ -1,0 +1,95 @@
+  <style>
+    /* Обучение, дети, спорт: белый фон, крупные скруглённые карточки разных цветов, дружелюбный жирный шрифт */
+    :root { --bg: #ffffff; --surface: #f4f6fb; --fg: #1b1f3b; --muted: #5b6080; --line: #e3e6f0; --accent: #4f7cf0; --on-accent: #fff;
+      --c1: #ffd43b; --c2: #ff8fab; --c3: #63e6be; --c4: #a5b4fc; --radius: 18px; --display: "Inter Tight", "Inter", system-ui, sans-serif; }
+    .hdr .wrap { display: flex; align-items: center; gap: 20px; min-height: 72px; }
+    .brand { display: flex; align-items: center; gap: 10px; font: 800 20px/1.1 var(--display); text-decoration: none; min-width: 0; }
+    .brand__dots { flex: none; display: grid; grid-template-columns: 12px 12px; gap: 3px; }
+    .brand__dots i { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); }
+    .brand__dots i:nth-child(2) { background: var(--c1); } .brand__dots i:nth-child(3) { background: var(--c2); } .brand__dots i:nth-child(4) { background: var(--c3); }
+    .nav { margin-left: auto; display: flex; gap: 6px; }
+    .nav a { text-decoration: none; padding: 8px 14px; border-radius: 999px; font-weight: 600; font-size: 15px; } .nav a:hover { background: var(--surface); }
+    .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 52px; padding: 0 26px; border-radius: 999px; text-decoration: none;
+      font: 700 16px/1 var(--display); background: var(--surface); }
+    .btn--accent { background: var(--accent); color: var(--on-accent); box-shadow: 0 10px 24px -10px var(--accent); }
+    .hero { padding: 40px 0 72px; }
+    .hero .wrap { display: grid; grid-template-columns: 1.2fr 1fr; gap: 40px; align-items: center; }
+    .kicker { display: inline-flex; gap: 8px; align-items: center; background: var(--surface); border-radius: 999px; padding: 8px 14px; font-weight: 600; font-size: 14px; }
+    .hero h1 { font: 900 clamp(44px, 7vw, 92px)/.95 var(--display); letter-spacing: -.04em; margin-top: 20px; }
+    .hero h1 span { display: block; color: var(--accent); }
+    .lead { margin-top: 20px; font-size: 19px; color: var(--muted); max-width: 44ch; }
+    .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+    .art { position: relative; aspect-ratio: 1; max-width: 460px; justify-self: center; width: 100%; }
+    .art i { position: absolute; border-radius: 50%; }
+    .art i:nth-child(1) { inset: 0 28% 28% 0; background: var(--accent); }
+    .art i:nth-child(2) { width: 46%; height: 46%; right: 0; top: 8%; background: var(--c1); border-radius: 28px; transform: rotate(12deg); }
+    .art i:nth-child(3) { width: 40%; height: 40%; left: 18%; bottom: 0; background: var(--c2); }
+    .art i:nth-child(4) { width: 34%; height: 34%; right: 6%; bottom: 10%; background: var(--c3); border-radius: 24px; }
+    .facts { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+    .fact { background: var(--surface); border-radius: 14px; padding: 12px 16px; display: grid; gap: 2px; }
+    .fact b { font: 800 18px/1.2 var(--display); } .fact span { font-size: 13px; color: var(--muted); }
+    section.block { padding: 72px 0; }
+    .eyebrow { font: 700 14px/1 var(--display); color: var(--accent); text-transform: uppercase; letter-spacing: .08em; }
+    h2 { font: 900 clamp(34px, 4.6vw, 56px)/1 var(--display); letter-spacing: -.035em; margin: 12px 0 36px; }
+    .services { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+    .svc { border-radius: var(--radius); padding: 26px; min-height: 180px; display: grid; align-content: space-between; gap: 18px; background: var(--c4); }
+    .svc:nth-child(4n+1) { background: var(--c1); } .svc:nth-child(4n+2) { background: var(--c2); } .svc:nth-child(4n+3) { background: var(--c3); }
+    .svc__n { font: 800 14px/1 var(--display); opacity: .6; }
+    .svc__t { font: 800 24px/1.1 var(--display); letter-spacing: -.02em; }
+    .svc__p { font-size: 14px; opacity: .75; }
+    .how { background: var(--surface); border-radius: 40px; margin: 0 max(12px, env(safe-area-inset-left, 0px)); }
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .step { background: var(--bg); border-radius: var(--radius); padding: 26px; display: grid; gap: 10px; align-content: start; }
+    .step__n { width: 44px; height: 44px; border-radius: 50%; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font: 800 18px/1 var(--display); }
+    .step h3 { font: 800 22px/1.15 var(--display); } .step p { color: var(--muted); }
+    .rating__box { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; background: var(--c1); border-radius: 28px; padding: 30px 34px; }
+    .rating__num { font: 900 88px/1 var(--display); letter-spacing: -.04em; }
+    .rating__stars { font-size: 24px; letter-spacing: 4px; }
+    .rating p { max-width: 52ch; margin-top: 6px; }
+    .contacts .grid { display: grid; grid-template-columns: 1fr 1.2fr; gap: 16px; }
+    .contacts .info { background: var(--accent); color: var(--on-accent); border-radius: 28px; padding: 32px; display: grid; gap: 14px; align-content: start; }
+    .contacts .info a.big { font: 900 32px/1.05 var(--display); text-decoration: none; }
+    .contacts .info .btn { background: #fff; color: var(--fg); }
+    .contacts .mapwrap { border-radius: 28px; overflow: hidden; min-height: 340px; }
+    footer { padding: 36px 0 48px; color: var(--muted); font-size: 14px; } footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+    @media (max-width: 860px) { .nav { display: none; } .hdr .btn { margin-left: auto; } .hero .wrap, .contacts .grid { grid-template-columns: 1fr; } .art { max-width: 260px; order: -1; }
+      .steps { grid-template-columns: 1fr; } .how { border-radius: 28px; } }
+  </style>
+</head>
+$top
+<header class="hdr"><div class="wrap">
+  <a class="brand" href="#top"><span class="brand__dots" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>$name</span></a>
+  <nav class="nav" aria-label="Меню"><a href="#services">Занятия</a><a href="#how">Как начать</a>$nav_rating<a href="#contacts">Контакты</a></nav>
+  <a class="btn btn--accent" href="$phone_href">Записаться</a>
+</div></header>
+<main id="main">
+<section class="hero" id="top"><div class="wrap">
+  <div>
+    <p class="kicker"><span class="open" data-open-status>$hours_short</span></p>
+    <h1>$hero_head<span>$hero_rest</span></h1>
+    <p class="lead">$lead</p>
+    <div class="cta"><a class="btn btn--accent" href="$phone_href">Записаться на занятие</a><a class="btn" href="$route_href" target="_blank" rel="noopener">Как добраться</a></div>
+    <ul class="facts">$facts</ul>
+  </div>
+  <div class="art" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+</div></section>
+<section class="block" id="services"><div class="wrap">
+  <p class="eyebrow">Занятия</p><h2>Чем можно заниматься</h2>
+  <ul class="services">$services</ul>
+  <p class="demo-note" style="margin-top:24px">Расписание и цены появятся на сайте после согласования с вами. Сейчас — уточняйте по телефону.</p>
+</div></section>
+<section class="block how" id="how"><div class="wrap">
+  <p class="eyebrow">Как начать</p><h2>Три шага</h2>
+  <ol class="steps">$steps</ol>
+</div></section>
+$rating_block
+<section class="block contacts" id="contacts"><div class="wrap">
+  <p class="eyebrow">Контакты</p><h2>Приходите</h2>
+  <div class="grid">
+    <div class="info"><a class="big" href="$phone_href">$phone_text</a><p>$address</p><p>$hours_text</p>
+      <a class="btn" href="$route_href" target="_blank" rel="noopener">Построить маршрут</a></div>
+    <div class="mapwrap"><iframe class="map" title="$name на карте" src="$map_src" loading="lazy"></iframe></div>
+  </div>
+</div></section>
+</main>
+<footer><div class="wrap"><span>$footer_line</span><span>Демо-концепт сайта · © <span data-year>2026</span></span></div></footer>

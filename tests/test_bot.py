@@ -291,7 +291,8 @@ class BotTests(unittest.TestCase):
         self.press(f"demo:{r['id']}")
         html = (self.b.demo_root / r["demo"] / "index.html").read_text(encoding="utf-8")
         self.assertIn("Лечение кариеса", html)
-        self.assertIn("hero__plain", html)
+        self.assertIn("Регистратура", html)  # свой сайт группы «медицина»
+        self.assertTrue((self.b.demo_root / "_assets" / "groups" / "base.css").exists())
         for bad in ("hero-1600", "svc-body", "Фотографии на сайте", "автомобил", "подъехать"):
             self.assertNotIn(bad, html)
         self.assertIn("стоматологию именно с телефона", r["draft"]["body"])
