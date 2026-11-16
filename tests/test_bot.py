@@ -65,7 +65,8 @@ class BotTests(unittest.TestCase):
                         mock.patch.object(bot, "spawn", lambda target, *args: target(*args)),
                         mock.patch.object(bot.time, "sleep"),
                         mock.patch.object(bot.demo_pdf, "render_pdf", side_effect=self.fake_pdf),
-                        mock.patch.object(bot.demo_pdf, "available", return_value=True)]
+                        mock.patch.object(bot.demo_pdf, "available", return_value=True),
+                        mock.patch.object(leads, "verify_no_site", side_effect=lambda bs, city: bs)]
         for x in self.patches:
             x.start()
         self.make_bot(json.loads(json.dumps(CONFIG)) if config is None else config)
@@ -100,7 +101,7 @@ class BotTests(unittest.TestCase):
 
     def buttons(self, i=-1):
         m = self.out[i][1]
-        return [btn["callback_data"] for row in json.loads(m)["inline_keyboard"] for btn in row] if m else []
+        return [btn.get("callback_data") or btn["url"] for row in json.loads(m)["inline_keyboard"] for btn in row] if m else []
 
     def press(self, data, user=42):
         self.b.handle_callback({"id": "q", "from": {"id": user}, "data": data,
@@ -210,7 +211,7 @@ class BotTests(unittest.TestCase):
         g = self.lead("Гараж Петровича")
         with mock.patch.object(bot.demo_pdf, "available", return_value=False):
             self.press(f"demo:{g['id']}")
-        self.assertIn("Письмо — без демо", self.last)
+        self.assertIn("Письмо — без демо", self.out[-2][0])
         self.assertIn("Могу подготовить вариант сайта", g["draft"]["body"])
 
     def test_letter_template(self):
@@ -279,8 +280,55 @@ class BotTests(unittest.TestCase):
         self.assertIn("tel:+79132223344", html)
         self.assertIn("70 отзывов", html)
         self.assertTrue((self.b.demo_root / "_assets" / "studio" / "css" / "styles.css").exists())
-        self.assertIn("нет email", self.last)
-        self.assertNotIn(f"send:{g['id']}", self.buttons())
+        self.assertIn("нет email", self.out[-2][0])
+        self.assertNotIn(f"send:{g['id']}", self.buttons(-2))
+        # под письмом — текст для WhatsApp (номер мобильный) с ссылкой на демо и кнопки
+        self.assertIn("Мобильный +7 913 222-33-44", self.last)
+        self.assertIn(f"/{g['demo']}/", self.last)
+        self.assertEqual(self.buttons(), ["https://wa.me/79132223344", f"mail:{g['id']}"])
+        # узнали почту по телефону — вводим, письмо можно отправить
+        self.press(f"mail:{g['id']}")
+        self.b.handle(1, 42, "не почта")
+        self.assertIn("не похоже на email", self.last)
+        self.press(f"mail:{g['id']}")
+        self.b.handle(1, 42, "Garage@Mail.ru")
+        self.assertEqual(g["draft"]["to"], "garage@mail.ru")
+        self.assertIn("Почту garage@mail.ru записал", self.last)
+        self.assertIn(f"send:{g['id']}", self.buttons())
+
+    def test_landline_gets_call_script(self):
+        self.run_search()
+        g = self.lead("Гараж Петровича")
+        g["b"]["phone"] = "+7 (3812) 22-33-44"
+        self.press(f"demo:{g['id']}")
+        self.assertIn("мобильного тоже. Позвоните: +7 381 222-33-44", self.last)
+        self.assertIn("Можно прислать вам на почту", self.last)
+        self.assertEqual(self.buttons(), [f"mail:{g['id']}"])
+
+    def test_osm_only_no_site_is_marked_and_ranked_lower(self):
+        nb = leads.new_business
+        found = [nb(name="Из OSM", phone="+7 900 111 22 33", sources=["OSM"]),
+                 nb(name="Из 2ГИС", phone="+7 900 444 55 66", sources=["2ГИС"])]
+        with mock.patch.object(leads, "find_businesses", return_value=(found, ["OpenStreetMap: 2"])):
+            self.b.handle(1, 42, "кузовной ремонт Омск")
+        cards = [t for t, m in self.out if t.startswith(("1.", "2."))]
+        self.assertTrue(cards[0].startswith("1. Из 2ГИС · 🚫 нет сайта"))
+        self.assertIn("2. Из OSM · 🚫 сайта нет в OpenStreetMap", cards[1])
+        self.assertIn("проверьте, нет ли сайта: https://yandex.ru/search/?text=", cards[1])
+        self.assertNotIn("проверьте", cards[0])
+
+    def test_site_found_by_verification_is_audited(self):
+        nb = leads.new_business
+        found = [nb(name="Ромашка", phone="+7 900 111 22 33", sources=["OSM"])]
+
+        def verify(bs, city):
+            return [leads._adopt(bs[0], nb(site=self.old, sources=[]), "по телефону на сайте")]
+        with mock.patch.object(leads, "find_businesses", return_value=(found, ["OpenStreetMap: 1"])), \
+                mock.patch.object(leads, "verify_no_site", side_effect=verify):
+            self.b.handle(1, 42, "кузовной ремонт Омск")
+        card = next(t for t, m in self.out if t.startswith("1."))
+        self.assertIn("сайта не было в OpenStreetMap, нашёл: по телефону на сайте", card)
+        self.assertNotIn("нет сайта", card)
 
     def test_demo_for_any_niche(self):
         """Демо есть у всех ниш: у стоматологии — свои услуги без машин, у своей ниши (/addniche) — из названия."""
