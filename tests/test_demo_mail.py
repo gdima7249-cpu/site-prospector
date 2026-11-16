@@ -111,6 +111,88 @@ class Demo(unittest.TestCase):
             self.assertIn("Режим уточняйте по телефону", page2)
 
 
+    # Тексты кузовного ремонта, которых не должно быть в демо шиномонтажа и автомойки
+    BODY_REPAIR = ("Кузовной", "кузовн", "покраск", "Покраска", "вмятин", "бампер", "Бампер", "ДТП", "страхов",
+                   "что случилось", "после ремонта", "svc-body", "svc-paint", "work-dent", "work-bumper", "work-paint",
+                   "Welder", "respray")
+
+    def test_tyre_and_wash_demos(self):
+        niches = leads.load_niches()
+        cases = {
+            "шиномонтаж": ("Шиномонтаж", "и балансировка", ["Сезонная замена шин", "Балансировка", "Ремонт проколов",
+                                                            "Хранение шин", "Правка дисков"],
+                           "Мастер посмотрит колёса", "Поезжайте дальше"),
+            "автомойка": ("Автомойка", "и уход за авто", ["Мойка кузова", "Комплексная мойка", "Химчистка салона",
+                                                          "Полировка"],
+                          "Скажите, какая мойка нужна", "Заберите чистую машину"),
+        }
+        b = leads.new_business(name="Колесо", phone="+7 (913) 111-22-33", address="ул. Лукашевича, 10",
+                               hours="Mo-Su 08:00-22:00", rating=4.8, reviews=21, sources=["2ГИС"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for niche, (head, rest, services, step2, step3) in cases.items():
+                with self.subTest(niche=niche, template="studio"):
+                    page = (root / d.build_demo(b, niche, niches[niche], "Омск", {"name": "Д"}, root)
+                            / "index.html").read_text(encoding="utf-8")
+                    self.assertIsNone(re.search(r"\$\{?[a-z_]+", page))
+                    self.assertIn(f'{head}<br><span class="hero__title-muted">{rest}</span>', page)
+                    self.assertIn(niches[niche]["demo"]["what"], page)
+                    for s in services:
+                        self.assertIn(f'<span class="svc__title">{s}</span>', page)
+                    self.assertIn(step2, page)
+                    self.assertIn(step3, page)
+                    self.assertIn('href="tel:+79131112233">+7 (913) 111-22-33</a>&nbsp;— узнайте', page)
+                    self.assertIn("Адрес: Омск, ул. Лукашевича, 10.", page)
+                    for bad in self.BODY_REPAIR:
+                        self.assertNotIn(bad, page)
+                    used = set(re.findall(r"img/(svc-[a-z]+-800|tech-1000)\.webp", page))
+                    self.assertTrue(used)
+                    self.assertTrue(used <= set(niches[niche]["demo"]["photos"]))
+                    for img in used:  # авторы фото CC BY — в подвале
+                        self.assertIn(d.STUDIO_PHOTOS[img].split("</a>")[0], page)
+                    preview = re.search(r'class="preview"[^>]*><img src="[^"]*img/([a-z0-9-]+)\.webp"', page).group(1)
+                    self.assertEqual(preview, niches[niche]["demo"]["photos"][0])
+                with self.subTest(niche=niche, template="simple"):
+                    tok = d.build_demo(b, niche, niches[niche], "Омск", {"name": "Д"}, root, "simple")
+                    page = (root / tok / "index.html").read_text(encoding="utf-8")
+                    self.assertIsNone(re.search(r"\$[a-z_]+", page))
+                    for s in services:
+                        self.assertIn(s, page)
+                    works = re.findall(r'<div class="cap"><b>([^<]+)</b>', page)
+                    self.assertEqual(works, [w["title"] for w in niches[niche]["demo"]["works"]])
+                    for bad in self.BODY_REPAIR:
+                        self.assertNotIn(bad, page)
+                    for img in re.findall(r'src="img/([^"]+)"', page):
+                        self.assertTrue((root / tok / "img" / img).exists(), img)
+
+    def test_body_repair_demo_keeps_defaults(self):
+        """Без своих photos/steps/works в нише — тексты и фото эталона, как раньше."""
+        niches = leads.load_niches()
+        b = leads.new_business(name="Кузов", phone="+7 913 977-45-07", address="ул. Заводская, 1")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            page = (root / d.build_demo(b, "кузовной ремонт", niches["кузовной ремонт"], "Омск", {}, root)
+                    / "index.html").read_text(encoding="utf-8")
+            self.assertIn("&nbsp;— расскажите, что случилось.", page)
+            self.assertIn("<h3>Приезжайте на&nbsp;осмотр</h3><p>Адрес: Омск, ул. Заводская, 1. Мастер посмотрит "
+                          "автомобиль и&nbsp;назовёт стоимость.</p>", page)
+            self.assertIn("Сроки и&nbsp;цену согласуем до&nbsp;начала работ.", page)
+            self.assertIn('img/svc-body-800.webp" alt=""></div>', page)  # фото у курсора
+            page = (root / d.build_demo(b, "кузовной ремонт", niches["кузовной ремонт"], "Омск", {}, root, "simple")
+                    / "index.html").read_text(encoding="utf-8")
+            self.assertEqual(re.findall(r'<div class="cap"><b>([^<]+)</b>', page),
+                             ["Покраска", "Кузовные работы", "Полировка", "Бампер"])
+
+    def test_bad_niche_demo_config(self):
+        b = leads.new_business(name="X")
+        base = {"what": "Шиномонтаж", "services": ["Балансировка"]}
+        with tempfile.TemporaryDirectory() as tmp:
+            for extra, tpl in (({"photos": ["svc-nope-800"]}, "studio"), ({"photos": ["hero"]}, "studio"),
+                               ({"steps": [{"title": "a", "text": "b"}]}, "studio"),
+                               ({"works": [{"title": "a", "img": "nope.svg"}]}, "simple")):
+                with self.subTest(extra=extra), self.assertRaises(ValueError):
+                    d.build_demo(b, "x", {"demo": {**base, **extra}}, "Тула", {}, Path(tmp), tpl)
+
     @unittest.skipUnless(HAVE_PLAYWRIGHT, "нет playwright — PDF не проверить")
     def test_render_pdf(self):
         import demo_pdf
