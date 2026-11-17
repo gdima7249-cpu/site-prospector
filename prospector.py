@@ -71,7 +71,12 @@ BAD_EMAIL_DOMAINS = ("example.com", "example.ru", "sentry.io", "wixpress.com", "
 PARKED_HINTS = ("домен продается", "домен продаётся", "домен выставлен на продажу", "купить домен", "купить этот домен",
                 "domain is for sale", "this domain is for sale", "buy this domain", "domain for sale", "parked domain",
                 "domain parking", "сайт не опубликован", "сайт заблокирован", "срок регистрации домена истек",
-                "срок регистрации домена истёк", "аккаунт заблокирован", "account suspended", "index of /")
+                "срок регистрации домена истёк", "аккаунт заблокирован", "account suspended", "index of /",
+                # страницы регистраторов и хостингов на свежем домене: сайта у компании ещё нет
+                "сайт в процессе разработки", "сайт находится в разработке", "сайт находится в стадии разработки",
+                "домен зарегистрирован через", "домен зарегистрирован в", "домен припаркован", "домен не делегирован",
+                "this domain is registered", "this domain has been registered", "domain is parked",
+                "website is under construction", "site is under construction")
 CONTACT_HINTS = ("contact", "kontakt", "контакт", "about", "o-nas", "o-kompanii", "о-нас", "о компании", "связ")
 
 
