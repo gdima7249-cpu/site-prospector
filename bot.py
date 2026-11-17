@@ -377,7 +377,10 @@ class Bot:
         self.st = load_state()
         self.seen = load_seen(self.st)
         self.cfg = config if config is not None else load_config()
-        self.busy = threading.Lock()
+        self.busy = threading.Lock()   # один поиск за раз: карты и сайты не любят параллельных запросов
+        self.current = ""              # что ищется сейчас: «ниша город»
+        self.current_auto = False      # True — это обход по расписанию или /scan, а не ваш запрос
+        self.pending = None            # ваш запрос, пришедший во время другого поиска: (chat, ниша, город)
         self.sched_lock = threading.Lock()  # обход по расписанию и /scan не идут одновременно
         self.lock = threading.RLock()
         self.send_lock = threading.Lock()
@@ -529,9 +532,23 @@ class Bot:
         req = leads.parse_request(text, leads.load_niches())
         if not req:
             return self.say(chat, "Не понял нишу. Список: /niches, своя: /addniche\n\n" + HELP)
-        if not self.busy.acquire(blocking=False):
-            return self.say(chat, "Ещё ищу по прошлому запросу, подождите.")
-        spawn(self.search, chat, *req)
+        with self.lock:
+            replaced = self.pending
+            free = self.busy.acquire(blocking=False)
+            self.pending = None if free else (chat, *req)  # последний запрос заменяет прежний ожидающий
+        if free:
+            return spawn(self.search, chat, *req)
+        what = " ".join(req)
+        now = (f"Сейчас идёт обход ниш и городов (ищу «{self.current}»)" if self.current_auto
+               else f"Сейчас ищу «{self.current}»" if self.current else "Сейчас идёт другой поиск")
+        if self.current_auto:
+            tail = (f"Ваш запрос «{what}» начну сразу после этого шага — обход подождёт. Карточки с пометкой 📍 "
+                    "приходят из обхода, а не по вашему запросу.")
+        else:
+            tail = f"Ваш запрос «{what}» начну сразу после него."
+        if replaced and tuple(replaced[1:]) != tuple(req):
+            tail += f" Прежний ожидавший запрос «{' '.join(replaced[1:])}» отменил."
+        self.say(chat, f"{now}. {tail}")
 
     def test_mail(self, chat: int):
         """Пробное письмо на свой же ящик: проверка логина, пароля и адреса SMTP без писем клиентам."""
@@ -583,6 +600,7 @@ class Bot:
         quiet=True — поиск по расписанию: только карточки, без промежуточных сообщений и CSV (их за день десятки).
         Если источники не ответили, self.last_error — текст ошибки (иначе пусто)."""
         self.last_error = ""
+        self.current, self.current_auto = f"{niche_name} {city}", quiet
         try:
             niche = leads.load_niches()[niche_name]
             if not quiet:
@@ -643,7 +661,7 @@ class Bot:
                 self.say(chat, f"Оценил {len(rows)} компаний — подходящих мало. Полный список в файле.")
             for n, L in enumerate(top, 1):
                 buttons = [("✅ Сделать демо", f"demo:{L['id']}"), ("❌ Пропустить", f"skip:{L['id']}")]
-                self.say(chat, format_lead(n, L) + (f"\n   📍 {niche_name} · {city}" if quiet else ""), kb(buttons))
+                self.say(chat, format_lead(n, L) + (f"\n   📍 из обхода: {niche_name} · {city}" if quiet else ""), kb(buttons))
             if not quiet:
                 self.send_file(chat, f"{niche_name}-{city}.csv".replace(" ", "_"), csv_bytes(rows),
                                "Все компании с приоритетом и рекомендацией (открывается в Excel)")
@@ -655,8 +673,28 @@ class Bot:
                 self.say(chat, f"Что-то сломалось: {type(e).__name__}. Подробности — в окне, где запущен бот.")
             return 0
         finally:
+            self.current, self.current_auto = "", False
             if self.busy.locked():
                 self.busy.release()
+            self.run_pending()
+
+    def run_pending(self):
+        """Запустить запрос, который вы прислали во время другого поиска. Ваши запросы идут раньше обхода."""
+        with self.lock:
+            req = self.pending
+            if not req or not self.busy.acquire(blocking=False):
+                return
+            self.pending = None
+        chat, niche_name, city = req
+        spawn(self.search, chat, niche_name, city)
+
+    def acquire_for_batch(self):
+        """Обход по расписанию и /scan занимают поиск, только когда нет ваших ожидающих запросов."""
+        while True:
+            with self.lock:
+                if self.pending is None and self.busy.acquire(blocking=False):
+                    return
+            time.sleep(1)
 
     def trim_leads(self):
         """Не раздувать bot_state.json: забываем самые старые карточки, которые уже ничего не ждут.
@@ -989,7 +1027,7 @@ class Bot:
             if req:
                 if done:
                     time.sleep(3)  # бесплатные серверы карт просят не слать запросы подряд
-                self.busy.acquire()
+                self.acquire_for_batch()
                 n = self.search(chat, *req, limit=left, quiet=True)
                 left -= n
                 cards += n

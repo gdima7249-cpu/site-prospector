@@ -612,7 +612,7 @@ class BotTests(unittest.TestCase):
             second = self.b.search(1, "автосервис", "Омск", limit=10, quiet=True)
         self.assertEqual(second, 3)
         self.assertEqual(len(self.b.st["leads"]), 5)
-        self.assertIn("📍 автосервис · Омск", self.out[-1][0])
+        self.assertIn("📍 из обхода: автосервис · Омск", self.out[-1][0])
 
     def test_seen_moves_out_of_state_file(self):
         bot.STATE.write_text(json.dumps({"owner": 42, "owner_chat": 1, "seen": ["tel:9001112233", "x.ru"]}), encoding="utf-8")
@@ -662,6 +662,44 @@ class BotTests(unittest.TestCase):
         self.assertEqual(len(calls), 4)
         self.b.handle(1, 99, "/scan")  # чужим бот не отвечает
         self.assertEqual(len(calls), 4)
+
+    def test_request_during_scan_runs_next(self):
+        """Ваш запрос во время обхода не теряется: он идёт сразу после текущего шага обхода, раньше следующего."""
+        self.b.cfg["schedule"] = {"time": "09:00", "tz": "Europe/Moscow", "max_cards": 5, "max_searches": 2,
+                                  "niches": ["автосервис", "шиномонтаж"], "cities": ["Тула"]}
+        calls = []
+
+        def fake_search(chat, niche, city, limit=bot.SHOW_TOP, quiet=False):
+            calls.append((f"{niche} {city}", quiet))
+            if len(calls) == 1:  # пока идёт первый шаг обхода, вы пишете свой запрос
+                self.b.current, self.b.current_auto = f"{niche} {city}", True
+                self.b.handle(1, 42, "стоматология Омск")
+                self.assertIn("обход", self.last)
+                self.assertIn("«стоматология Омск» начну сразу после", self.last)
+            self.b.current, self.b.current_auto = "", False  # как настоящий search в finally
+            self.b.busy.release()
+            self.b.run_pending()
+            return 0
+        with mock.patch.object(self.b, "search", side_effect=fake_search):
+            self.b.handle(1, 42, "/start")
+            self.b.handle(1, 42, "/scan")
+        self.assertEqual(calls, [("автосервис Тула", True), ("стоматология Омск", False), ("шиномонтаж Тула", True)])
+        self.assertIsNone(self.b.pending)
+        self.assertFalse(self.b.busy.locked())
+
+    def test_request_during_search_replaces_waiting_one(self):
+        self.b.handle(1, 42, "/start")
+        self.b.busy.acquire()
+        self.b.current = "кузовной ремонт Омск"
+        self.b.handle(1, 42, "автосервис Омск")
+        self.assertIn("Сейчас ищу «кузовной ремонт Омск»", self.last)
+        self.b.handle(1, 42, "стоматология Казань")
+        self.assertIn("«автосервис Омск» отменил", self.last)
+        self.assertEqual(self.b.pending, (1, "стоматология", "Казань"))
+        with mock.patch.object(self.b, "search") as search:
+            self.b.busy.release()
+            self.b.run_pending()
+        search.assert_called_once_with(1, "стоматология", "Казань")
 
     def test_telegram_retry(self):
         b = bot.Bot("TOKEN", json.loads(json.dumps(CONFIG)))

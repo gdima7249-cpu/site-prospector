@@ -29,7 +29,11 @@ GOOD = f"""<!doctype html><html><head><title>Хороший сайт</title>
 </head><body><a href="/ok">ok</a><footer>© {p.YEAR}</footer></body></html>"""
 ROBOTS = "User-agent: *\nDisallow: /private\n"
 PARKED = "<html><body><h1>Этот домен продаётся!</h1><p>Купить домен romashka.ru</p></body></html>"
-PAGES = {"/parked/": PARKED, "/old/": OLD, "/contacts": CONTACTS, "/ok": "<html>ok</html>", "/good/": GOOD,
+# страница регистратора на свежем домене (как у i7.ru): «сайт в процессе разработки» и реклама хостинга
+REGISTRAR = ("<html><head><title>Everest-realt.ru</title></head><body><h1>Everest-realt.ru</h1>"
+             "<p>Сайт в процессе разработки</p><p>Сделать сайт просто как «раз-два-три»!</p>"
+             "<p>WHOIS – проверка домена</p><p>Домен зарегистрирован через i7.RU. Whois</p></body></html>")
+PAGES = {"/parked/": PARKED, "/registrar/": REGISTRAR, "/old/": OLD, "/contacts": CONTACTS, "/ok": "<html>ok</html>", "/good/": GOOD,
          "/private/": GOOD, "/robots.txt": ROBOTS}
 
 
@@ -186,6 +190,10 @@ class Tests(unittest.TestCase):
         a = self.audit("/parked/")
         self.assertFalse(a.ok)
         self.assertIn("заглушка", a.error)
+        a = self.audit("/registrar/")  # заглушка регистратора — не сайт компании, а не «сайт без мобильной версии»
+        self.assertFalse(a.ok)
+        self.assertIn("заглушка", a.error)
+        self.assertEqual(a.issues, {})
         a = self.audit("/nope/")
         self.assertFalse(a.ok)
         self.assertIn("404", a.error)
