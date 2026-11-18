@@ -425,9 +425,12 @@ class BotTests(unittest.TestCase):
                   ("3", {"kind": "bounce", "from": "mailer-daemon@x", "subject": "Undelivered", "failed": "a@b.ru"}),
                   ("4", {"kind": "bounce", "from": "mailer-daemon@x", "subject": "Undelivered", "failed": "c@d.ru"}),
                   ("5", {"kind": "bounce", "from": "mailer-daemon@x", "subject": "Undelivered", "failed": "e@f.ru"})]
-        with mock.patch.object(bot.mailer, "fetch_new", return_value=events) as fetch:
+        def fetch(cfg, seen, folder="INBOX"):
+            return events if folder == "INBOX" else []
+        with mock.patch.object(bot.mailer, "fetch_new", side_effect=fetch) as fetch_mock:
             self.b.check_inbox()
-        self.assertEqual(fetch.call_args.args[0]["user"], "me@my.ru")  # логин берётся из smtp
+        self.assertEqual(fetch_mock.call_args.args[0]["user"], "me@my.ru")  # логин берётся из smtp
+        self.assertEqual(fetch_mock.call_args.args[0]["host"], "imap.test")
         texts = [t for t, _ in self.out]
         self.assertTrue(any("📩 Ответ от «Ромашка»" in t and "Да, интересно" in t for t in texts))
         self.assertTrue(any("отказался" in t for t in texts))
@@ -729,6 +732,137 @@ class BotTests(unittest.TestCase):
         self.assertTrue(len(sent) >= 3 and all(len(t) <= 4096 for t, _ in sent))
         self.assertEqual(sum(t.count("x") for t, _ in sent), 10000)
         self.assertEqual([m is not None for _, m in sent], [False] * (len(sent) - 1) + [True])
+
+
+    # ——— две почты, ответы, 12 компаний, «работает ли компания» ———
+    def two_boxes(self, **lim):
+        self.b.cfg["smtp2"] = {"host": "smtp.yandex.ru", "port": 465, "user": "second@my.ru", "password": "y"}
+        self.b.cfg["limits"].update(per_day=10, **lim)
+
+    @staticmethod
+    def fake_lead(i):
+        return {"id": f"x{i}", "b": {"name": f"Компания {i}"}, "status": "draft",
+                "draft": {"to": f"c{i}@client.ru", "subject": "s", "body": "b"}}
+
+    def test_two_mailboxes_split_ten_letters(self):
+        self.b.handle(1, 42, "/start")
+        self.two_boxes()
+        self.assertEqual(self.b.box_quotas(), {"smtp": 5, "smtp2": 5})
+        froms = []
+        with mock.patch.object(bot.mailer, "send", side_effect=lambda box, *a, **k: froms.append(box["user"])):
+            for i in range(11):
+                self.b.send_lead(1, self.fake_lead(i))
+        self.assertEqual(froms.count("me@my.ru"), 5)
+        self.assertEqual(froms.count("second@my.ru"), 5)
+        self.assertEqual(froms[:2], ["me@my.ru", "second@my.ru"])  # по очереди
+        self.assertIn("дневной лимит 10 писем исчерпан (со всех ящиков)", self.last)
+        self.b.handle(1, 42, "/status")
+        self.assertIn("Сегодня отправлено: 10 из 10", self.last)
+        self.assertIn("second@my.ru — отправлено 5 из 5", self.last)
+
+    def test_unfilled_second_mailbox_is_ignored(self):
+        self.b.handle(1, 42, "/start")
+        self.b.cfg["smtp2"] = {"host": "smtp.yandex.ru", "user": "вторая-почта@ваш-домен.ru", "password": "пароль приложения"}
+        self.b.cfg["limits"]["per_day"] = 10
+        self.assertEqual([b["key"] for b in self.b.boxes()], ["smtp"])
+        self.assertEqual(self.b.box_quotas(), {"smtp": 10})
+        with mock.patch.object(bot.mailer, "send") as send:
+            self.b.handle(1, 42, "/testmail")
+        self.assertEqual(send.call_count, 1)
+
+    def test_testmail_checks_both_boxes(self):
+        self.b.handle(1, 42, "/start")
+        self.two_boxes()
+        def send(box, to, *a, **k):
+            if box["key"] == "smtp2":
+                raise bot.mailer.smtplib.SMTPAuthenticationError(535, b"bad")
+        with mock.patch.object(bot.mailer, "send", side_effect=send):
+            self.b.handle(1, 42, "/testmail")
+        self.assertIn("✅ Пробное письмо отправлено на me@my.ru", self.last)
+        self.assertIn("❌ С second@my.ru письмо не ушло", self.last)
+
+    def test_inbox_second_box_and_spam(self):
+        self.b.handle(1, 42, "/start")
+        self.two_boxes()
+        self.b.st["leads"]["r"] = {"id": "r", "b": {"name": "Ромашка"}, "status": "sent", "sent_to": "boss@romashka.ru"}
+        self.b.st["leads"]["k"] = {"id": "k", "b": {"name": "Клён"}, "status": "sent", "sent_to": "klen@mail.ru"}
+        def fetch(cfg, seen, folder="INBOX"):
+            if cfg["user"] == "second@my.ru" and folder == "INBOX":
+                return [("1", {"kind": "reply", "from": "boss@romashka.ru", "subject": "Re", "text": "Давайте"})]
+            if cfg["user"] == "me@my.ru" and folder == "spam":
+                return [("7", {"kind": "reply", "from": "klen@mail.ru", "subject": "Re", "text": "Сколько стоит?"}),
+                        ("8", {"kind": "reply", "from": "casino@spam.ru", "subject": "Win", "text": "$$$"})]
+            return []
+        with mock.patch.object(bot.mailer, "fetch_new", side_effect=fetch) as fm:
+            self.b.check_inbox()
+        hosts = {c.args[0]["host"] for c in fm.call_args_list}
+        self.assertEqual(hosts, {"imap.test", "imap.yandex.ru"})  # для второго ящика адрес IMAP — из SMTP
+        texts = "\n".join(t for t, _ in self.out)
+        self.assertIn("📩 Ответ от «Ромашка» (boss@romashka.ru) (в ящик second@my.ru)", texts)
+        self.assertIn("«Клён» (klen@mail.ru) (в ящик me@my.ru) — письмо лежало в «Спаме»", texts)
+        self.assertNotIn("casino", texts)  # чужой спам не пересылаем
+        self.assertEqual(sorted(self.b.st["mail_seen"]), ["smtp2:1", "spam:7", "spam:8"])
+        n = len(self.out)
+        seen_args = []
+        with mock.patch.object(bot.mailer, "fetch_new", side_effect=lambda cfg, seen, folder="INBOX": seen_args.append(
+                (cfg["user"], folder, sorted(seen))) or []):
+            self.b.check_inbox()
+        self.assertEqual(len(self.out), n)
+        self.assertIn(("second@my.ru", "INBOX", ["1"]), seen_args)
+        self.assertIn(("me@my.ru", "spam", ["7", "8"]), seen_args)
+
+    def test_inbox_error_is_reported_once(self):
+        self.b.handle(1, 42, "/start")
+        err = bot.mailer.imaplib.IMAP4.error("LOGIN failed")
+        with mock.patch.object(bot.mailer, "fetch_new", side_effect=err):
+            self.b.check_inbox()
+            self.b.check_inbox()
+        warnings = [t for t, _ in self.out if "Не могу прочитать ответы" in t]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("IMAP", warnings[0])
+        self.b.handle(1, 42, "/status")
+        self.assertIn("❌ ответы не читаются", self.last)
+        with mock.patch.object(bot.mailer, "fetch_new", return_value=[]):
+            self.b.check_inbox()
+        self.assertIn("снова читается", self.last)
+
+    def test_twelve_cards_from_other_cities(self):
+        self.b.handle(1, 42, "/start")
+        nb = leads.new_business
+
+        def found(niche_name, niche, city):
+            n = 3 if city == "Омск" else 4
+            return [nb(name=f"Кузня {city} {i}", phone=f"+7 913 {abs(hash(city)) % 900 + 100} 00 {i:02d}", reviews=20,
+                       sources=["2ГИС"]) for i in range(n)], ["2ГИС: n"]
+        with mock.patch.object(leads, "find_businesses", side_effect=found):
+            self.b.handle(1, 42, "кузовной ремонт Омск")
+        cards = [t for t, m in self.out if m and "demo:" in m]
+        self.assertEqual(len(cards), 12)
+        self.assertTrue(cards[11].startswith("12. "))
+        self.assertEqual(len(self.b.st["last"]), 12)
+        self.assertNotIn("📍 город", cards[0])
+        self.assertIn("📍 город:", cards[3])
+        texts = [t for t, _ in self.out]
+        self.assertTrue(any("В городе Омск подходящих только 3. Добираю до 12" in t for t in texts))
+        self.assertTrue(any(t.startswith("Готово: 12 компаний (Омск — 3,") for t in texts))
+        self.assertEqual(len(self.files), 1)  # один файл со всеми компаниями
+
+    def test_closed_companies_are_dropped(self):
+        self.b.handle(1, 42, "/start")
+        nb = leads.new_business
+        biz = [nb(name="Закрытый гараж", phone="+7 913 000 00 01", sources=["OSM"], closed="в OpenStreetMap помечена как закрытая"),
+               nb(name="Старый гараж", phone="+7 913 000 00 02", email="old@g.ru", hours="Mo-Fr 09:00-18:00",
+                  sources=["OSM"], osm_date="2014-05-01"),
+               nb(name="Живой гараж", phone="+7 913 000 00 03", reviews=40, sources=["2ГИС"])]
+        with mock.patch.object(leads, "find_businesses", return_value=(biz, ["n"])), \
+                mock.patch.object(leads, "other_cities", return_value=[]):
+            self.b.handle(1, 42, "кузовной ремонт Омск")
+        texts = "\n".join(t for t, _ in self.out)
+        self.assertNotIn("Закрытый гараж", texts.split("Нашёл", 1)[1])
+        self.assertIn("Ещё 1 закрыты по данным карт", texts)
+        self.assertIn("🟢 работает: есть в 2ГИС, 40 отзывов", texts)
+        self.assertIn("🟠 могла закрыться: данные о компании не обновлялись с 2014 г.", texts)
+        self.assertIn("tel:9130000001", self.b.seen)  # закрытую больше не рассматриваем
 
 
 if __name__ == "__main__":

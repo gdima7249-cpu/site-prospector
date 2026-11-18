@@ -92,6 +92,34 @@ def load_cities() -> list[dict]:
     return sorted(data.get("cities", []), key=lambda c: -(c.get("pop_k") or 0))
 
 
+def other_cities(city: str, limit: int = 8) -> list[str]:
+    """Где ещё поискать ту же нишу, если в городе мало подходящих компаний: сначала города того же региона,
+    потом остальные той же страны: сначала с близким часовым поясом, среди них — близкие по размеру. Координат в
+    cities.json нет, поэтому «соседние» определяются по региону и часовому поясу, а не по расстоянию."""
+    cities = load_cities()
+    key = city.strip().lower().replace("ё", "е")
+    me = next((c for c in cities if c["name"].lower().replace("ё", "е") == key), None)
+    if me is None:  # города нет в списке: берём крупные города, начиная с самых больших
+        return [c["name"] for c in cities if c.get("country", "RU") == city_country(city)][:limit]
+    rank = {c["name"]: i for i, c in enumerate(cities)}
+    others = [c for c in cities if c["name"] != me["name"] and c.get("country", "RU") == me.get("country", "RU")]
+    region = [c["name"] for c in others if c.get("region") == me.get("region")]
+    my_off = _utc_offset(me.get("tz", ""))
+    rest = sorted((c for c in others if c["name"] not in region),
+                  key=lambda c: (abs(_utc_offset(c.get("tz", "")) - my_off), abs(rank[c["name"]] - rank[me["name"]])))
+    return (region + [c["name"] for c in rest])[:limit]
+
+
+def _utc_offset(tz: str) -> float:
+    """Сдвиг часового пояса от UTC в часах (Омск +6, Москва +3): чем ближе сдвиг, тем ближе город на восток-запад."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    try:
+        return datetime.now(ZoneInfo(tz)).utcoffset().total_seconds() / 3600
+    except Exception:  # noqa: BLE001 — неизвестный пояс
+        return 3.0
+
+
 def scheduled_niches(niches: dict[str, dict] | None = None) -> list[str]:
     """Ниши для ежедневного перебора: все, кроме помеченных "schedule": false (сети, розница)."""
     niches = niches if niches is not None else load_niches()
@@ -146,7 +174,7 @@ def business_keys(b: dict) -> list[str]:
 
 def new_business(**kw) -> dict:
     b = {"name": "", "site": "", "domain": "", "email": "", "phone": "", "address": "", "hours": "",
-         "rating": None, "reviews": None, "sources": []}
+         "rating": None, "reviews": None, "sources": [], "osm_date": "", "closed": ""}
     b.update(kw)
     b["domain"] = p.normalize(b["site"]) if b["site"] else ""
     return b
@@ -166,7 +194,7 @@ def merge(groups: list[list[dict]]) -> list[dict]:
                 out[key] = dict(b, sources=list(b["sources"]))
             else:
                 cur = out[key]
-                for f in ("name", "site", "domain", "email", "phone", "address", "hours"):
+                for f in ("name", "site", "domain", "email", "phone", "address", "hours", "osm_date", "closed"):
                     if not cur.get(f) and b.get(f):
                         cur[f] = b[f]
                 for f in ("rating", "reviews"):
@@ -274,7 +302,8 @@ def overpass_query(niche: dict, bbox: tuple[float, float, float, float], limit: 
         for k in (("shop", "craft") if light else ("shop", "office", "craft")):
             parts.append(f'  nwr["{k}"]["name"~"{rx}"]({box});')
     timeout = 40 if light else 60
-    return f"[out:json][timeout:{timeout}];\n(\n" + "\n".join(parts) + f"\n);\nout tags {200 if light else limit};"
+    # out meta — вместе с тегами дата последней правки: по ней видно, давно ли кто-то подтверждал, что компания на месте
+    return f"[out:json][timeout:{timeout}];\n(\n" + "\n".join(parts) + f"\n);\nout meta {200 if light else limit};"
 
 
 _OSM_CACHE: dict[tuple, tuple[float, list]] = {}
@@ -341,12 +370,75 @@ def osm_search(niche: dict, city: str) -> list[dict]:
         if site and len(owners.get(p.normalize(site), ())) > 1:
             continue
         street = " ".join(x for x in (t.get("addr:street", ""), t.get("addr:housenumber", "")) if x)
+        hours = t.get("opening_hours", "")
         found.append(new_business(
             name=name, site=site, email=(t.get("email") or t.get("contact:email") or "").lower(),
             phone=t.get("phone") or t.get("contact:phone") or "", address=street,
-            hours=t.get("opening_hours", ""), sources=["OSM"]))
+            hours="" if hours.strip().lower() in ("closed", "off") else hours, sources=["OSM"],
+            osm_date=osm_date(el), closed=osm_closed(t, name)))
     _OSM_CACHE[cache_key] = (time.time(), [dict(b, sources=list(b["sources"])) for b in found])
     return found
+
+
+# ───────────────────────────── работает ли компания ─────────────────────────────
+# Бесплатного реестра «открыта / закрыта» для всех компаний нет. Бот смотрит на то, что есть у источников:
+# - OpenStreetMap: пометки о закрытии (disused:*, was:*, «закрыто» в названии, часы «closed», дата окончания)
+#   и дата последней правки или проверки на месте (check_date). Давно не правили — данные могли устареть;
+# - справочники 2ГИС и Яндекс: компания там есть (с ключами) — данные свежие;
+# - отзывы и работающий сайт — признаки живого бизнеса.
+LIFECYCLE = ("disused:", "abandoned:", "was:", "closed:", "removed:", "demolished:", "razed:")
+CLOSED_NAME = re.compile(r"закрыт|ликвидир|не работает|переехал", re.I)
+STALE_YEARS = 5  # данные OpenStreetMap старше этого без других подтверждений — «могла закрыться»
+
+
+def osm_date(el: dict) -> str:
+    """Дата последней правки объекта в OpenStreetMap или проверки на месте (check_date), что новее: ГГГГ-ММ-ДД."""
+    t = el.get("tags", {})
+    dates = [str(el.get("timestamp", ""))[:10]] + [str(t.get(k, ""))[:10] for k in ("check_date", "survey:date")]
+    dates = [d for d in dates if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d)]
+    return max(dates) if dates else ""
+
+
+def osm_closed(t: dict, name: str) -> str:
+    """Почему по данным OpenStreetMap компания закрыта (пустая строка — пометок о закрытии нет)."""
+    if any(k.startswith(LIFECYCLE) for k in t) or t.get("disused") == "yes" or t.get("abandoned") == "yes":
+        return "в OpenStreetMap помечена как закрытая"
+    if CLOSED_NAME.search(name) or CLOSED_NAME.search(t.get("description", "")) or CLOSED_NAME.search(t.get("note", "")):
+        return "в OpenStreetMap написано, что закрыта"
+    if t.get("opening_hours", "").strip().lower() in ("closed", "off"):
+        return "в OpenStreetMap часы работы: «закрыто»"
+    end = str(t.get("end_date", ""))[:10]
+    if re.fullmatch(r"\d{4}(-\d{2}(-\d{2})?)?", end) and end <= time.strftime("%Y-%m-%d"):
+        return f"в OpenStreetMap дата закрытия {end}"
+    return ""
+
+
+def activity(b: dict, a: p.Audit | dict | None = None, today: str | None = None) -> tuple[str, str]:
+    """Работает ли компания: ("closed" | "active" | "stale" | "unknown", пояснение для карточки).
+    closed — источник прямо говорит, что закрыта (такие не показываем); active — есть свежие признаки жизни;
+    stale — только старые данные OpenStreetMap; unknown — подтверждений нет, но и данные не старые."""
+    if b.get("closed"):
+        return "closed", b["closed"]
+    signs = []
+    dirs = [s for s in b.get("sources", []) if s in DIRECTORIES]
+    if dirs:
+        signs.append("есть в " + " и ".join(sorted(dirs)))
+    if b.get("reviews"):
+        signs.append(f"{b['reviews']} отзывов")
+    if (a.get("ok") if isinstance(a, dict) else getattr(a, "ok", False)):  # a — проверка сайта (или её dict из карточки)
+        signs.append("сайт открывается")
+    if signs:
+        return "active", ", ".join(signs)
+    d = b.get("osm_date", "")
+    today = today or time.strftime("%Y-%m-%d")
+    if d and int(today[:4]) - int(d[:4]) - (today[5:] < d[5:]) >= STALE_YEARS:
+        return "stale", f"данные о компании не обновлялись с {d[:4]} г."
+    if d:
+        return "unknown", f"только OpenStreetMap, данные обновлялись в {d[:4]} г."
+    return "unknown", "подтверждений нет"
+
+
+ACTIVITY_ICON = {"active": "🟢 работает", "stale": "🟠 могла закрыться", "unknown": "🟡 не проверить точно"}
 
 
 # ───────────────────────────── Яндекс ─────────────────────────────
@@ -795,9 +887,13 @@ def lead_score(b: dict, a: p.Audit | None, tier: str) -> tuple[int, list[str], s
     score += TIER_BONUS.get(tier, 5)
     if len(b.get("sources", [])) >= 2:
         score += 3  # компания есть в нескольких справочниках — данные свежее
+    status, why = activity(b, a)
+    if status == "stale":
+        score -= 15  # давно никто не подтверждал, что компания на месте: письмо может уйти в пустоту
+        reasons.append(f"могла закрыться ({why})")
     if not has_email and not b.get("phone"):
         score = min(score, 20)  # написать некуда — как бы ни был плох сайт
-    return min(score, 100), reasons, kind
+    return max(min(score, 100), 0), reasons, kind
 
 
 # ───────────────────────────── рекомендация по цене ─────────────────────────────
