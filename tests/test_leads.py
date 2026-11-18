@@ -71,7 +71,7 @@ class Niches(unittest.TestCase):
         q = leads.overpass_query({"osm": ["amenity=dentist"], "keywords": ["стомат", "дентал"]}, (54.8, 73.1, 55.1, 73.6))
         self.assertIn('nwr["amenity"="dentist"](54.80000,73.10000,55.10000,73.60000);', q)
         self.assertIn('nwr["shop"]["name"~"[Сс]томат|[Дд]ентал"]', q)
-        self.assertTrue(q.endswith("out tags 400;"))
+        self.assertTrue(q.endswith("out meta 400;"))
         self.assertNotIn('"amenity"]["name"', q)  # тяжёлый поиск по словам — только в shop/office/craft
         self.assertNotIn("website", q)  # теперь ищем и компании без сайта
 
@@ -455,3 +455,64 @@ class VerifyNoSite(unittest.TestCase):
         with mock.patch.object(leads, "guess_site", return_value=""), \
                 mock.patch.object(leads, "api_keys", return_value={"2gis": "", "yandex": ""}):
             self.assertEqual(leads.verify_no_site(b, "Москва"), b)
+
+
+class Activity(unittest.TestCase):
+    def test_osm_closed_and_date(self):
+        self.assertTrue(leads.osm_closed({"disused:shop": "car_repair"}, "Гараж"))
+        self.assertTrue(leads.osm_closed({}, "Шиномонтаж (закрыт)"))
+        self.assertTrue(leads.osm_closed({"opening_hours": "closed"}, "А"))
+        self.assertTrue(leads.osm_closed({"end_date": "2020-01-01"}, "А"))
+        self.assertFalse(leads.osm_closed({"end_date": "2999"}, "А"))
+        self.assertFalse(leads.osm_closed({"shop": "car_repair", "opening_hours": "Mo-Fr 09:00-18:00"}, "Гараж"))
+        el = {"timestamp": "2016-03-01T10:00:00Z", "tags": {"check_date": "2023-07-15"}}
+        self.assertEqual(leads.osm_date(el), "2023-07-15")
+        self.assertEqual(leads.osm_date({"tags": {}}), "")
+
+    def test_osm_search_reads_closed_and_date(self):
+        resp = mock.Mock(status_code=200)
+        resp.json.return_value = {"elements": [
+            {"timestamp": "2015-01-01T00:00:00Z", "tags": {"name": "Старый", "phone": "+7 900 000 00 01"}},
+            {"tags": {"name": "Бывший", "was:shop": "car_repair", "phone": "+7 900 000 00 02"}}]}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(leads, "CITY_CACHE_FILE", Path(tmp) / "c.json"), \
+                mock.patch.object(leads, "find_city", return_value=(1, 2, 3, 4)), \
+                mock.patch.object(leads.requests, "post", return_value=resp):
+            found = leads.osm_search({"osm": ["shop=car_repair"], "keywords": ["активн"]}, "Город-тест")
+        by = {b["name"]: b for b in found}
+        self.assertEqual(by["Старый"]["osm_date"], "2015-01-01")
+        self.assertEqual(by["Старый"]["closed"], "")
+        self.assertIn("закрыт", by["Бывший"]["closed"])
+
+    def test_activity(self):
+        nb = leads.new_business
+        self.assertEqual(leads.activity(nb(name="А", closed="x"))[0], "closed")
+        self.assertEqual(leads.activity(nb(name="А", sources=["2ГИС"], reviews=3)),
+                         ("active", "есть в 2ГИС, 3 отзывов"))
+        self.assertEqual(leads.activity(nb(name="А", sources=["OSM"]), {"ok": True})[0], "active")
+        self.assertEqual(leads.activity(nb(name="А", sources=["OSM"], osm_date="2015-06-01"), today="2026-11-18"),
+                         ("stale", "данные о компании не обновлялись с 2015 г."))
+        self.assertEqual(leads.activity(nb(name="А", sources=["OSM"], osm_date="2024-06-01"), today="2026-11-18")[0],
+                         "unknown")
+
+    def test_stale_lowers_score(self):
+        nb = leads.new_business
+        fresh = nb(name="А", phone="+7 900 000 00 01", sources=["OSM"], osm_date=time_str(0))
+        old = dict(fresh, osm_date="2012-01-01")
+        s1, _, _ = leads.lead_score(fresh, None, "mid")
+        s2, reasons, _ = leads.lead_score(old, None, "mid")
+        self.assertEqual(s1 - s2, 15)
+        self.assertTrue(any("могла закрыться" in r for r in reasons))
+
+    def test_other_cities_region_first(self):
+        cities = leads.other_cities("Казань", 5)
+        self.assertNotIn("Казань", cities)
+        region = {c["name"] for c in leads.load_cities() if c.get("region") == "Республика Татарстан"} - {"Казань"}
+        self.assertTrue(region, "в cities.json есть другие города Татарстана")
+        self.assertEqual(set(cities[:len(region)]), region if len(region) <= 5 else set(cities[:5]))
+        self.assertEqual(len(leads.other_cities("Неизвестноград", 3)), 3)
+
+
+def time_str(years_ago: int) -> str:
+    import time
+    return f"{int(time.strftime('%Y')) - years_ago}-01-01"

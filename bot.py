@@ -45,7 +45,8 @@ STATE = HERE / "bot_state.json"
 CONFIG = HERE / "config.json"
 MAX_SITES = 40      # сколько сайтов проверять за один поиск
 MAX_LEADS = 150     # сколько компаний рассматривать за один поиск
-SHOW_TOP = 10       # сколько карточек присылать за один поиск
+SHOW_TOP = 12       # сколько карточек присылать на ваш запрос (config.json → search → cards)
+EXTRA_CITIES = 8    # в скольких других городах добирать, если в вашем мало (search → extra_cities)
 MIN_SCORE = 35      # ниже этого приоритета компания не показывается (но есть в отчёте)
 KEEP_LEADS = 3000   # сколько карточек помнить (кнопки старых карточек после этого не работают)
 ALL = ("все", "all", "*")  # schedule → cities / niches: "все" — все города из cities.json / все ниши
@@ -54,7 +55,9 @@ HELP = """Напишите нишу и город, например:
 кузовной ремонт Омск
 стоматология Казань
 
-Бот пришлёт карточки лучших кандидатов. Под каждой кнопки:
+Бот пришлёт 12 лучших кандидатов (если в городе меньше — доберёт в соседних городах).
+У каждого отмечено, работает ли компания: 🟢 работает, 🟡 не проверить точно, 🟠 могла закрыться.
+Под каждой кнопки:
 ✅ Сделать демо — бот соберёт демо-сайт по эталону и подготовит письмо
 ❌ Пропустить — больше не показывать
 Потом: 📨 Отправить / ✏️ Изменить текст / ❌ Отмена.
@@ -63,7 +66,7 @@ HELP = """Напишите нишу и город, например:
 /status — сколько писем отправлено сегодня, пауза, расписание
 /scan — запустить обход ниш и городов сейчас, не дожидаясь расписания (те же лимиты)
 /pause и /resume — остановить и возобновить отправку
-/testmail — пробное письмо на ваш ящик (проверка почты)
+/testmail — пробное письмо с каждого вашего ящика на него же (проверка почты)
 /draft 3 — черновик письма для кандидата №3 из последнего поиска
 /niches — список ниш · /addniche натяжные потолки: потолк, натяжн | high — своя ниша
 /sources — какие источники подключены
@@ -84,7 +87,7 @@ def load_state() -> dict:
         st = {}
     defaults = {"owner": None, "owner_chat": None, "offset": 0, "seen": [], "skip": [], "last": [], "leads": {},
                 "sent_today": {}, "bounces_today": {}, "paused": False, "pending_edit": None, "pending_mail": None, "last_auto": "",
-                "mail_seen": [], "last_send_ts": 0}
+                "mail_seen": [], "last_send_ts": 0, "sent_box": {}}
     for k, v in defaults.items():
         st.setdefault(k, v)
     if isinstance(st["last"], dict) or (st["last"] and isinstance(st["last"][0], dict)):  # формат старых версий
@@ -158,6 +161,8 @@ def build_leads(businesses: list[dict], audits: dict[str, p.Audit], tier: str, c
             continue  # сайт есть, но не проверяли (сверх лимита) — оценивать вслепую не будем
         if b.get("domain") and a and not a.ok and b.get("site_found") == "по телефону на сайте":
             continue  # угаданный домен уже не открывается — не считаем это сайтом компании
+        if b.get("closed"):
+            continue  # источник прямо говорит, что компания закрыта — предлагать некому
         if a and a.emails and not b["email"]:
             b = dict(b, email=a.emails[0])
         score, reasons, kind = leads.lead_score(b, a, tier)
@@ -193,6 +198,9 @@ def format_lead(i: int, L: dict) -> str:
     lines.append("   ✉ " + (", ".join(contacts) or "контактов не нашёл"))
     if b.get("rating") is not None:
         lines.append(f"   ★ {b['rating']} · {b.get('reviews') or 0} отзывов ({', '.join(b['sources'])})")
+    status, why = leads.activity(b, L.get("a"))
+    if status in leads.ACTIVITY_ICON:
+        lines.append(f"   {leads.ACTIVITY_ICON[status]}: {why}")
     if L["kind"] == "no_site" and not leads.no_site_confirmed(b):
         lines.append("   🔎 проверьте, нет ли сайта: " + search_link(b, L.get("city", "")))
     return "\n".join(lines)
@@ -206,13 +214,13 @@ def csv_bytes(rows: list[dict]) -> bytes:
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";")
     w.writerow(["№", "компания", "сайт", "статус", "приоритет", "почему", "рекомендация", "email", "телефон",
-                "адрес", "рейтинг", "отзывов", "источники"])
+                "адрес", "рейтинг", "отзывов", "источники", "город"])
     status = {"no_site": "нет сайта", "dead_site": "не работает", "site": "есть"}
     for i, L in enumerate(rows, 1):
         b = L["b"]
         w.writerow([i, b["name"], b["domain"], status[L["kind"]], L["score"], ", ".join(L["reasons"]), L["price"],
                     b["email"], b["phone"], b["address"], b.get("rating") or "", b.get("reviews") or "",
-                    ", ".join(b["sources"])])
+                    ", ".join(b["sources"]), L.get("city", "")])
     return buf.getvalue().encode("utf-8-sig")
 
 
@@ -384,6 +392,7 @@ class Bot:
         self.sched_lock = threading.Lock()  # обход по расписанию и /scan не идут одновременно
         self.lock = threading.RLock()
         self.send_lock = threading.Lock()
+        self.inbox_state: dict[str, dict] = {}  # по ящикам: когда проверяли, ошибка (чтобы сказать о ней один раз)
         demo = self.cfg.get("demo", {})
         self.demo_root = HERE / demo.get("dir", "public_demos")
         self.demo_url = demo.get("public_url", "").rstrip("/")
@@ -441,7 +450,7 @@ class Bot:
         if self.cfg.get("demo", {}).get("port") and self.demo_url:  # без public_url демо наружу не открываем
             start_demo_server(self.demo_root, int(self.cfg["demo"]["port"]))
             print(f"Демо-страницы: {self.demo_url or 'порт ' + str(self.cfg['demo']['port'])}")
-        if self.cfg.get("imap"):
+        if self.boxes():
             threading.Thread(target=self.inbox_loop, daemon=True).start()
         if self.schedule_queries():
             threading.Thread(target=self.schedule_loop, daemon=True).start()
@@ -550,33 +559,82 @@ class Bot:
             tail += f" Прежний ожидавший запрос «{' '.join(replaced[1:])}» отменил."
         self.say(chat, f"{now}. {tail}")
 
+    # — почтовые ящики —
+    def boxes(self) -> list[dict]:
+        """Заполненные ящики: smtp, smtp2, … из config.json."""
+        return mailer.mailboxes(self.cfg)
+
+    def box_quotas(self) -> dict[str, int]:
+        return mailer.quotas(int(self.cfg.get("limits", {}).get("per_day", 20)), self.boxes())
+
+    def day_limit(self) -> int:
+        return sum(self.box_quotas().values()) or int(self.cfg.get("limits", {}).get("per_day", 20))
+
+    def pick_box(self, today: str) -> dict | None:
+        """Ящик для следующего письма: у кого сегодня меньше отправлено и лимит не исчерпан."""
+        sent = self.sent_by_box(today)
+        quotas = self.box_quotas()
+        free = [b for b in self.boxes() if sent.get(b["key"], 0) < quotas.get(b["key"], 0)]
+        return min(free, key=lambda b: sent.get(b["key"], 0)) if free else None
+
+    def sent_by_box(self, today: str) -> dict[str, int]:
+        """Сколько писем сегодня ушло с каждого ящика. В день обновления бота счётчик по ящикам ещё пуст —
+        тогда всё отправленное за сегодня считаем с первого ящика."""
+        if today in self.st["sent_box"]:
+            return dict(self.st["sent_box"][today])
+        n = self.st["sent_today"].get(today, 0)
+        return {"smtp": n} if n else {}
+
     def test_mail(self, chat: int):
-        """Пробное письмо на свой же ящик: проверка логина, пароля и адреса SMTP без писем клиентам."""
-        smtp = self.cfg.get("smtp")
-        if not smtp:
-            return self.say(chat, "Почта не настроена: в config.json нет раздела smtp.")
-        to = smtp.get("from") or smtp["user"]
-        try:
-            mailer.send(smtp, to, "Проверка бота site-prospector", "Если вы видите это письмо, отправка работает.")
-        except Exception as e:  # noqa: BLE001
-            return self.say(chat, f"❌ Письмо не ушло: {type(e).__name__}: {e}\n\nЧастые причины: обычный пароль вместо "
-                                  "«пароля приложения», неверный host/port, в ящике не разрешены почтовые программы.")
-        self.say(chat, f"✅ Пробное письмо отправлено на {to}. Проверьте, что оно пришло во «Входящие», а не в «Спам».")
+        """Пробное письмо с каждого ящика на него же: проверка логина, пароля и адреса SMTP без писем клиентам."""
+        boxes = self.boxes()
+        if not boxes:
+            return self.say(chat, "Почта не настроена: в config.json нет заполненного раздела smtp "
+                                  "(адрес, пароль приложения).")
+        lines = []
+        for box in boxes:
+            to = mailer.address(box)
+            try:
+                mailer.send(box, to, "Проверка бота site-prospector", "Если вы видите это письмо, отправка работает.")
+                lines.append(f"✅ Пробное письмо отправлено на {to}.")
+            except Exception as e:  # noqa: BLE001
+                lines.append(f"❌ С {to} письмо не ушло: {type(e).__name__}: {e}")
+        text = "\n".join(lines)
+        if "❌" in text:
+            text += ("\n\nЧастые причины: обычный пароль вместо «пароля приложения», неверный host/port, в ящике не "
+                     "разрешены почтовые программы.")
+        if "✅" in text:
+            text += "\nПроверьте, что письма пришли во «Входящие», а не в «Спам»."
+        self.say(chat, text)
 
     def status_text(self) -> str:
         today = self.today()
-        lim = self.cfg.get("limits", {})
-        sched = self.cfg.get("schedule", {})
         statuses = [L.get("status", "new") for L in self.st["leads"].values()]
-        return (f"Сегодня отправлено: {self.st['sent_today'].get(today, 0)} из {lim.get('per_day', 20)}\n"
+        mem = demo_pdf.memory_mb()
+        return (f"Сегодня отправлено: {self.st['sent_today'].get(today, 0)} из {self.day_limit()}\n"
                 f"Недоставленных сегодня: {self.st['bounces_today'].get(today, 0)}\n"
                 f"Отправка: {'⏸ на паузе (/resume)' if self.st['paused'] else '▶️ работает'}\n"
-                f"Почта: {'настроена' if self.cfg.get('smtp') else 'не настроена (config.json → smtp)'}\n"
-                f"PDF с демо: {'работает' if demo_pdf.available() else 'нет браузера на сервере'}\n"
+                f"{self.mail_status(today)}\n"
+                f"PDF с демо: {'работает' if demo_pdf.available() else 'нет браузера на сервере'}"
+                + (f" (память сервера: свободно {mem[0]} из {mem[1]} МБ)" if mem else "") + "\n"
                 f"Ссылки на демо: {self.demo_url if self.demo_link({'demo': 'x'}) else 'выключены (нужен домен; демо уходят в PDF)'}\n"
                 f"{self.schedule_status()}\n"
                 f"Кандидаты: отправлено {statuses.count('sent')}, ответили {statuses.count('replied')}, "
                 f"отказались {statuses.count('refused')}")
+
+    def mail_status(self, today: str) -> str:
+        boxes = self.boxes()
+        if not boxes:
+            return "Почта: не настроена (config.json → smtp)"
+        sent = self.sent_by_box(today)
+        quotas = self.box_quotas()
+        lines = ["Почта:"]
+        for b in boxes:
+            ins = self.inbox_state.get(b["key"], {})
+            reading = (f"❌ ответы не читаются: {ins['error']}" if ins.get("error") else
+                       f"ответы проверены в {ins['at']}" if ins.get("at") else "ответы ещё не проверялись")
+            lines.append(f"  {mailer.address(b)} — отправлено {sent.get(b['key'], 0)} из {quotas.get(b['key'], 0)}, {reading}")
+        return "\n".join(lines)
 
     def schedule_status(self) -> str:
         qs = self.schedule_queries()
@@ -595,77 +653,84 @@ class Bot:
         return datetime.now(tz).strftime("%Y-%m-%d")
 
     # — поиск —
-    def search(self, chat: int, niche_name: str, city: str, limit: int = SHOW_TOP, quiet: bool = False) -> int:
+    def cards_wanted(self) -> int:
+        return max(1, int(self.cfg.get("search", {}).get("cards", SHOW_TOP)))
+
+    def search(self, chat: int, niche_name: str, city: str, limit: int | None = None, quiet: bool = False) -> int:
         """Ищет и присылает карточки. Возвращает число присланных карточек.
-        quiet=True — поиск по расписанию: только карточки, без промежуточных сообщений и CSV (их за день десятки).
+        На ваш запрос бот присылает ровно cards_wanted() (по умолчанию 12) подходящих компаний: если в городе их
+        меньше, добирает ту же нишу в других городах — сначала того же региона.
+        quiet=True — поиск по расписанию: только карточки этого города, без промежуточных сообщений и CSV.
         Если источники не ответили, self.last_error — текст ошибки (иначе пусто)."""
         self.last_error = ""
+        limit = limit or self.cards_wanted()
         self.current, self.current_auto = f"{niche_name} {city}", quiet
         try:
             niche = leads.load_niches()[niche_name]
             if not quiet:
                 self.say(chat, f"Ищу «{niche_name}» в городе {city}…")
-            try:
-                found, notes = leads.find_businesses(niche_name, niche, city)
-            except LookupError as e:
-                if not quiet:
-                    self.say(chat, str(e))
-                return 0
-            except leads.MapError as e:
-                self.last_error = str(e)
-                if quiet:
+            extra = int(self.cfg.get("search", {}).get("extra_cities", EXTRA_CITIES))
+            cities = [city] + ([] if quiet else leads.other_cities(city, extra))
+            sent, all_rows, by_city, ids = 0, [], {}, []
+            for k, c in enumerate(cities):
+                if sent >= limit:
+                    break
+                if k == 1:
+                    self.say(chat, f"В городе {city} подходящих {'только ' + str(sent) if sent else 'не нашлось'}. "
+                                   f"Добираю до {limit}: ищу «{niche_name}» в других городах "
+                                   f"({', '.join(cities[1:4])}{' и дальше' if len(cities) > 4 else ''}).")
+                if k:
+                    time.sleep(3)  # бесплатные серверы карт просят не слать запросы подряд
+                self.current = f"{niche_name} {c}"
+                try:
+                    top, rows = self.find_in_city(chat, niche_name, niche, c, limit - sent, quiet, main=k == 0)
+                except LookupError as e:
+                    if k == 0:
+                        if not quiet:
+                            self.say(chat, str(e))
+                        return 0
+                    continue  # другой город не нашёлся на карте — пропускаем его
+                except leads.MapError as e:
+                    self.last_error = str(e)
+                    if k:
+                        self.say(chat, f"Источники перестали отвечать ({e}) — остальные города в другой раз.")
+                        break
+                    if quiet:
+                        return 0
+                    keys = leads.api_keys()
+                    tip = "" if keys["2gis"] or keys["yandex"] else (
+                        "\n\nБесплатные серверы OpenStreetMap иногда перегружены. Надёжнее подключить ключ 2ГИС или Яндекса "
+                        "(см. /sources) — тогда бот будет работать и без OpenStreetMap.")
+                    self.say(chat, f"Источники не ответили.\n{e}\n\nПопробуйте через 5–10 минут.{tip}")
                     return 0
-                keys = leads.api_keys()
-                tip = "" if keys["2gis"] or keys["yandex"] else (
-                    "\n\nБесплатные серверы OpenStreetMap иногда перегружены. Надёжнее подключить ключ 2ГИС или Яндекса "
-                    "(см. /sources) — тогда бот будет работать и без OpenStreetMap.")
-                self.say(chat, f"Источники не ответили.\n{e}\n\nПопробуйте через 5–10 минут.{tip}")
-                return 0
-            skip = set(self.st["skip"]) | self.seen | p.load_suppression(HERE / "do_not_contact.txt")
-            fresh = [b for b in found if leads.keep(b, skip)][:MAX_LEADS]
-            if not fresh:
-                if not quiet:
-                    self.say(chat, f"Новых компаний не нашёл ({'; '.join(notes)}). Попробуйте другую нишу или город.")
-                return 0
-            n_site = sum(1 for b in fresh if b["site"])
-            if not quiet:
-                self.say(chat, f"Нашёл {len(fresh)} новых компаний ({'; '.join(notes)}): {n_site} с сайтом, "
-                               f"{len(fresh) - n_site} без. Перепроверяю тех, у кого нет сайта, и проверяю сайты — "
-                               "это пара минут.")
-            # «нет сайта» только по OpenStreetMap — часто просто незаполненное поле: ищем сайт в других местах
-            fresh = [b for b in leads.verify_no_site(fresh, city) if leads.keep(b, skip)]
-            audits = audit_sites(fresh)
-            rows = build_leads(fresh, audits, niche.get("tier", "mid"), city)
-            for L in rows:
-                L.update(id=lead_id(L["b"]), niche=niche_name, city=city, status="new")
-            top = [L for L in rows if L["score"] >= MIN_SCORE][:limit]
-            # Запоминаем показанные компании и слабых кандидатов (ниже порога) — по всем признакам: домен, телефоны,
-            # почта. В другой день компания может прийти из другого источника уже с сайтом или другим первым
-            # телефоном — и всё равно не повторится. Хороших кандидатов, которым сегодня не хватило места
-            # (дневной лимит карточек), не запоминаем: они придут при следующем поиске этой ниши в этом городе.
-            shown = {L["id"] for L in top}
-            remember = [L for L in rows if L["id"] in shown or L["score"] < MIN_SCORE]
-            with self.lock:
+                all_rows += rows
+                with self.lock:
+                    ids += [L["id"] for L in top]
+                    self.st["last"] = list(ids)  # /draft N — номер из этого поиска, по всем городам
+                self.save()
                 for L in top:
-                    self.st["leads"][L["id"]] = L
-                self.st["last"] = [L["id"] for L in top]
-                new_keys = [k for k in dict.fromkeys(k for L in remember for k in leads.business_keys(L["b"]))
-                            if k not in self.seen]
-                if new_keys:
-                    with open(seen_path(), "a", encoding="utf-8") as f:
-                        f.write("".join(k + "\n" for k in new_keys))
-                    self.seen.update(new_keys)
-                self.trim_leads()
-            self.save()
-            if not top and not quiet:
-                self.say(chat, f"Оценил {len(rows)} компаний — подходящих мало. Полный список в файле.")
-            for n, L in enumerate(top, 1):
-                buttons = [("✅ Сделать демо", f"demo:{L['id']}"), ("❌ Пропустить", f"skip:{L['id']}")]
-                self.say(chat, format_lead(n, L) + (f"\n   📍 из обхода: {niche_name} · {city}" if quiet else ""), kb(buttons))
+                    sent += 1
+                    by_city[c] = by_city.get(c, 0) + 1
+                    buttons = [("✅ Сделать демо", f"demo:{L['id']}"), ("❌ Пропустить", f"skip:{L['id']}")]
+                    where = (f"\n   📍 из обхода: {niche_name} · {c}" if quiet else
+                             f"\n   📍 город: {c}" if c != city else "")
+                    self.say(chat, format_lead(sent, L) + where, kb(buttons))
             if not quiet:
-                self.send_file(chat, f"{niche_name}-{city}.csv".replace(" ", "_"), csv_bytes(rows),
-                               "Все компании с приоритетом и рекомендацией (открывается в Excel)")
-            return len(top)
+                if len(by_city) > 1 or sent < limit:
+                    parts = ", ".join(f"{c} — {n}" for c, n in by_city.items())
+                    if sent >= limit:
+                        self.say(chat, f"Готово: {sent} компаний ({parts}).")
+                    elif sent:
+                        self.say(chat, f"Нашёл только {sent} подходящих ({parts}), проверил {len(cities)} городов. "
+                                       "Остальные компании этой ниши уже показывал или они слабые кандидаты. "
+                                       "Попробуйте другую нишу.")
+                    else:
+                        self.say(chat, f"Подходящих новых компаний не нашёл ни в городе {city}, ни в других "
+                                       f"({len(cities) - 1}). Попробуйте другую нишу.")
+                if all_rows:
+                    self.send_file(chat, f"{niche_name}-{city}.csv".replace(" ", "_"), csv_bytes(all_rows),
+                                   "Все компании с приоритетом и рекомендацией (открывается в Excel)")
+            return sent
         except Exception as e:  # noqa: BLE001
             print(f"Ошибка поиска: {e!r}")
             self.last_error = f"{type(e).__name__}"
@@ -677,6 +742,59 @@ class Bot:
             if self.busy.locked():
                 self.busy.release()
             self.run_pending()
+
+    def find_in_city(self, chat: int, niche_name: str, niche: dict, city: str, limit: int, quiet: bool,
+                     main: bool) -> tuple[list[dict], list[dict]]:
+        """Один город: компании из источников → отсев (показанные, закрытые) → перепроверка «нет сайта» →
+        проверка сайтов → оценка. Возвращает (лучшие до limit, все оценённые). LookupError, MapError — наружу."""
+        talk = main and not quiet
+        found, notes = leads.find_businesses(niche_name, niche, city)
+        skip = set(self.st["skip"]) | self.seen | p.load_suppression(HERE / "do_not_contact.txt")
+        fresh = [b for b in found if leads.keep(b, skip)][:MAX_LEADS]
+        # закрытые по данным источника — не показываем и больше не рассматриваем
+        closed = [b for b in fresh if b.get("closed")]
+        fresh = [b for b in fresh if not b.get("closed")]
+        if closed:
+            self.remember(closed)
+        if not fresh:
+            if talk:
+                self.say(chat, f"Новых компаний в городе {city} не нашёл ({'; '.join(notes)}).")
+            return [], []
+        if talk:
+            n_site = sum(1 for b in fresh if b["site"])
+            gone = f" Ещё {len(closed)} закрыты по данным карт — их пропускаю." if closed else ""
+            self.say(chat, f"Нашёл {len(fresh)} новых компаний ({'; '.join(notes)}): {n_site} с сайтом, "
+                           f"{len(fresh) - n_site} без.{gone} Перепроверяю тех, у кого нет сайта, и проверяю сайты — "
+                           "это пара минут.")
+        # «нет сайта» только по OpenStreetMap — часто просто незаполненное поле: ищем сайт в других местах
+        fresh = [b for b in leads.verify_no_site(fresh, city) if leads.keep(b, skip)]
+        audits = audit_sites(fresh)
+        rows = build_leads(fresh, audits, niche.get("tier", "mid"), city)
+        for L in rows:
+            L.update(id=lead_id(L["b"]), niche=niche_name, city=city, status="new")
+        top = [L for L in rows if L["score"] >= MIN_SCORE][:limit]
+        # Запоминаем показанные компании и слабых кандидатов (ниже порога) — по всем признакам: домен, телефоны,
+        # почта. В другой день компания может прийти из другого источника уже с сайтом или другим первым
+        # телефоном — и всё равно не повторится. Хороших кандидатов, которым сегодня не хватило места
+        # (лимит карточек), не запоминаем: они придут при следующем поиске этой ниши в этом городе.
+        shown = {L["id"] for L in top}
+        with self.lock:
+            for L in top:
+                self.st["leads"][L["id"]] = L
+            self.remember([L["b"] for L in rows if L["id"] in shown or L["score"] < MIN_SCORE])
+            self.trim_leads()
+        self.save()
+        return top, rows
+
+    def remember(self, businesses: list[dict]):
+        """Больше не показывать эти компании (признаки — в seen.txt)."""
+        with self.lock:
+            new_keys = [k for k in dict.fromkeys(k for b in businesses for k in leads.business_keys(b))
+                        if k not in self.seen]
+            if new_keys:
+                with open(seen_path(), "a", encoding="utf-8") as f:
+                    f.write("".join(k + "\n" for k in new_keys))
+                self.seen.update(new_keys)
 
     def run_pending(self):
         """Запустить запрос, который вы прислали во время другого поиска. Ваши запросы идут раньше обхода."""
@@ -782,13 +900,16 @@ class Bot:
                 print(f"Ошибка сборки демо: {e!r}")
                 note = f"Демо собрать не удалось ({type(e).__name__}), письмо — без него.\n\n"
         if L.get("demo") and want_pdf and not self.pdf_path(L):
+            if demo_pdf.busy():
+                self.say(chat, f"PDF для «{L['b']['name']}» — в очереди: браузер собирает PDF по одному, "
+                               "чтобы серверу хватило памяти. Пришлю, как дойдёт очередь.")
             try:
                 demo_pdf.render_pdf(self.demo_root, L["demo"], L["b"]["name"], HERE / "demo_pdfs" / f"{L['demo']}.pdf",
                                     demo_cfg.get("chromium_path"))
             except Exception as e:  # noqa: BLE001
                 print(f"Ошибка PDF: {e!r}")
-                note += (f"PDF собрать не удалось ({type(e).__name__}). Если это ModuleNotFoundError или ошибка браузера — "
-                         "на сервере не установлен Chromium (см. README, раздел про PDF).\n\n")
+                note += (f"PDF собрать не удалось: {demo_pdf.explain(e)}\n"
+                         "Письмо можно отправить и без PDF, или нажмите «✅ Сделать демо» ещё раз позже.\n\n")
         pdf = self.pdf_path(L)
         if pdf:
             self.send_file(chat, self.pdf_name(L), pdf.read_bytes(), "PDF, который уйдёт клиенту вместе с письмом")
@@ -808,7 +929,7 @@ class Bot:
         to = d["to"] or "нет email — ниже текст для WhatsApp или звонка"
         text = f"{head}Кому: {to}\nТема: {d['subject']}\n\n{d['body']}"
         buttons = [("✏️ Изменить", f"edit:{L['id']}"), ("❌ Отмена", f"cancel:{L['id']}")]
-        if d["to"] and self.cfg.get("smtp"):
+        if d["to"] and self.boxes():
             buttons.insert(0, ("📨 Отправить", f"send:{L['id']}"))
         elif d["to"]:
             text += "\n\n(Почта для отправки не настроена — config.json → smtp. Пока отправьте вручную.)"
@@ -850,18 +971,18 @@ class Bot:
     # — отправка —
     def send_lead(self, chat: int, L: dict):
         d = L.get("draft") or {}
-        smtp = self.cfg.get("smtp")
         lim = self.cfg.get("limits", {})
         today = self.today()
         problem = None
-        if not smtp:
+        if not self.boxes():
             problem = "почта не настроена (config.json → smtp)"
         elif not d.get("to"):
             problem = "у компании нет email"
         elif self.st["paused"]:
             problem = "отправка на паузе (/resume)"
-        elif self.st["sent_today"].get(today, 0) >= lim.get("per_day", 20):
-            problem = f"дневной лимит {lim.get('per_day', 20)} писем исчерпан, завтра можно продолжить"
+        elif self.pick_box(today) is None:
+            problem = (f"дневной лимит {self.day_limit()} писем исчерпан"
+                       f"{' (со всех ящиков)' if len(self.boxes()) > 1 else ''}, завтра можно продолжить")
         elif p.suppressed(d["to"], p.load_suppression(HERE / "do_not_contact.txt")) or L.get("status") == "sent":
             problem = "этот адрес в списке «не писать» или письмо уже отправлено"
         if problem:
@@ -873,21 +994,30 @@ class Bot:
             if wait > 0:
                 self.say(chat, f"Отправлю «{L['b']['name']}» через {int(wait)} с (пауза между письмами).")
                 time.sleep(wait)
+            box = self.pick_box(today)
+            if box is None:  # пока ждали паузу, лимит выбрали другие письма
+                return self.say(chat, f"Не отправил «{L['b']['name']}»: дневной лимит {self.day_limit()} писем исчерпан.",
+                                kb([("📨 Отправить", f"send:{L['id']}"), ("❌ Отмена", f"cancel:{L['id']}")]))
             try:
                 pdf = self.pdf_path(L)
-                mailer.send(smtp, d["to"], d["subject"], d["body"],
+                mailer.send(box, d["to"], d["subject"], d["body"],
                             [(self.pdf_name(L), pdf.read_bytes())] if pdf else None)
             except Exception as e:  # noqa: BLE001
-                print(f"Ошибка отправки: {e!r}")
-                return self.say(chat, f"Письмо «{L['b']['name']}» не ушло: {type(e).__name__}: {e}",
+                print(f"Ошибка отправки с {mailer.address(box)}: {e!r}")
+                return self.say(chat, f"Письмо «{L['b']['name']}» не ушло с {mailer.address(box)}: {type(e).__name__}: {e}",
                                 kb([("📨 Попробовать ещё раз", f"send:{L['id']}")]))
             with self.lock:
                 self.st["last_send_ts"] = time.time()
+                by_box = self.sent_by_box(today)  # до прибавки к общему счётчику: он нужен в день обновления
+                by_box[box["key"]] = by_box.get(box["key"], 0) + 1
                 self.st["sent_today"] = {today: self.st["sent_today"].get(today, 0) + 1}
-                L.update(status="sent", sent_to=d["to"], sent_at=datetime.now().isoformat(timespec="minutes"))
+                self.st["sent_box"] = {today: by_box}
+                L.update(status="sent", sent_to=d["to"], sent_from=mailer.address(box),
+                         sent_at=datetime.now().isoformat(timespec="minutes"))
             self.save()
-        self.say(chat, f"📨 Отправлено: «{L['b']['name']}» → {d['to']}. "
-                       f"Сегодня {self.st['sent_today'][today]} из {lim.get('per_day', 20)}.")
+        via = f" с {mailer.address(box)}" if len(self.boxes()) > 1 else ""
+        self.say(chat, f"📨 Отправлено: «{L['b']['name']}» → {d['to']}{via}. "
+                       f"Сегодня {self.st['sent_today'][today]} из {self.day_limit()}.")
 
     # — входящие —
     def inbox_loop(self):
@@ -898,50 +1028,92 @@ class Bot:
                 print(f"Ошибка чтения почты: {e!r}")
             time.sleep(int(self.cfg.get("imap", {}).get("every_sec", 300)))
 
+    @staticmethod
+    def _seen_prefix(key: str, folder: str) -> str:
+        """Признак письма в mail_seen: первый ящик, «Входящие» — просто номер письма (как в прежних версиях),
+        остальное — с приставкой ящика и папки."""
+        return ("" if key == "smtp" else key + ":") + ("spam:" if folder == "spam" else "")
+
+    def _seen_for(self, seen: dict, key: str, folder: str) -> set[str]:
+        pre = self._seen_prefix(key, folder)
+        if not pre:
+            return {k for k in seen if ":" not in k}
+        return {k[len(pre):] for k in seen if k.startswith(pre) and ":" not in k[len(pre):]}
+
     def check_inbox(self):
-        imap = dict(self.cfg["imap"])
-        imap.setdefault("user", self.cfg.get("smtp", {}).get("user"))
-        imap.setdefault("password", self.cfg.get("smtp", {}).get("password"))
-        seen = set(self.st["mail_seen"])
-        events = mailer.fetch_new(imap, seen)
+        """Читает ответы во всех ящиках: «Входящие» и «Спам» (из «Спама» — только письма от тех, кому мы писали).
+        Если ящик не открывается, один раз говорит об этом в Telegram и ещё раз — когда снова заработает."""
+        boxes = self.boxes()
+        if not boxes:
+            return
+        seen = dict.fromkeys(self.st["mail_seen"])  # по порядку: старые признаки отбрасываются первыми
         chat = self.st["owner_chat"]
+        by_email = {L.get("sent_to"): L for L in self.st["leads"].values() if L.get("sent_to")}
+        mine = {mailer.address(b) for b in boxes} | {b["user"].lower() for b in boxes}
+        events = []
+        for box in boxes:
+            imap = mailer.imap_settings(self.cfg, box)
+            state = self.inbox_state.setdefault(box["key"], {})
+            try:
+                for folder in ("INBOX", "spam"):
+                    if folder == "spam" and not by_email:
+                        continue  # писем ещё не отправляли — в «Спаме» ответов быть не может
+                    pre = self._seen_prefix(box["key"], folder)
+                    got = mailer.fetch_new(imap, self._seen_for(seen, box["key"], folder),
+                                           **({"folder": "spam"} if folder == "spam" else {}))
+                    events += [(pre + uid, ev, folder, box) for uid, ev in got]
+            except Exception as e:  # noqa: BLE001
+                err = f"{type(e).__name__}: {str(e)[:150]}"
+                print(f"Ошибка чтения почты {mailer.address(box)}: {err}")
+                if not state.get("error") and chat:
+                    self.say(chat, f"⚠️ Не могу прочитать ответы в ящике {mailer.address(box)}: {err}\n\n"
+                                   "Проверьте в настройках ящика, что включён доступ по IMAP (почтовые программы) "
+                                   "и что пароль — «пароль приложения» с доступом к почте. Скажу, когда заработает.")
+                state["error"] = err
+                continue
+            if state.get("error") and chat:
+                self.say(chat, f"✅ Ящик {mailer.address(box)} снова читается — ответы клиентов буду присылать.")
+            state.update(error="", at=datetime.now(ZoneInfo(self.cfg.get("schedule", {}).get("tz", "Europe/Moscow")))
+                         .strftime("%H:%M"))
         if not events:
             return
         today = self.today()
-        by_email = {L.get("sent_to"): L for L in self.st["leads"].values() if L.get("sent_to")}
-        me = (self.cfg.get("smtp", {}).get("from") or self.cfg.get("smtp", {}).get("user") or "").lower()
-        for uid, ev in events:
-            seen.add(uid)
-            if ev.get("from") == me or ev["kind"] == "auto":
+        many = len(boxes) > 1
+        for key, ev, folder, box in events:
+            seen[key] = None
+            if ev.get("from") in mine or ev["kind"] == "auto":
                 continue  # свои письма (например, /testmail) и автоматические уведомления — не ответы клиентов
+            L = by_email.get(ev.get("from"))
+            if folder == "spam" and (ev["kind"] == "bounce" or not L):
+                continue  # в «Спаме» нам интересны только ответы тех, кому мы писали
+            where = (f" (в ящик {mailer.address(box)})" if many else "") + (" — письмо лежало в «Спаме»" if folder == "spam" else "")
             if ev["kind"] == "bounce":
                 with self.lock:
                     self.st["bounces_today"] = {today: self.st["bounces_today"].get(today, 0) + 1}
-                L = by_email.get(ev.get("failed"))
-                if L:
-                    L["status"] = "bounced"
-                self.say(chat, f"⚠️ Письмо не доставлено{': ' + ev['failed'] if ev.get('failed') else ''}.")
+                Lb = by_email.get(ev.get("failed"))
+                if Lb:
+                    Lb["status"] = "bounced"
+                self.say(chat, f"⚠️ Письмо не доставлено{': ' + ev['failed'] if ev.get('failed') else ''}{where}.")
                 max_b = self.cfg.get("limits", {}).get("max_bounces_per_day", 3)
                 if self.st["bounces_today"][today] >= max_b and not self.st["paused"]:
                     self.st["paused"] = True
                     self.say(chat, f"⏸ Сегодня уже {self.st['bounces_today'][today]} недоставленных писем — поставил "
                                    "отправку на паузу. Проверьте адреса и настройки почты, потом /resume.")
                 continue
-            L = by_email.get(ev["from"])
             who = f"«{L['b']['name']}» ({ev['from']})" if L else ev["from"]
             if ev["kind"] == "refusal":
                 with open(HERE / "do_not_contact.txt", "a", encoding="utf-8") as f:
                     f.write(ev["from"] + "\n")
                 if L:
                     L["status"] = "refused"
-                self.say(chat, f"🙅 {who} отказался — добавил в список «не писать».\n\n{ev['text'][:500]}")
+                self.say(chat, f"🙅 {who} отказался — добавил в список «не писать»{where}.\n\n{ev['text'][:500]}")
             else:
                 if L:
                     L["status"] = "replied"
-                self.say(chat, f"📩 Ответ от {who}\nТема: {ev['subject']}\n\n{ev['text'][:1500]}\n\n"
+                self.say(chat, f"📩 Ответ от {who}{where}\nТема: {ev['subject']}\n\n{ev['text'][:1500]}\n\n"
                                "Дальше — вы. Ответьте клиенту из своей почты.")
         with self.lock:
-            self.st["mail_seen"] = list(seen)[-2000:]
+            self.st["mail_seen"] = list(seen)[-4000:]
         self.save()
 
     # — расписание —

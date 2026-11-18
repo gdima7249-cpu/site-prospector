@@ -1,5 +1,6 @@
 """Тесты сборщика демо и почты (SMTP и IMAP подменены)."""
 import email
+import os
 import re
 import sys
 import tempfile
@@ -231,7 +232,8 @@ class Demo(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "demos"
             tok = d.build_demo(b, "кузовной ремонт", niches["кузовной ремонт"], "Омск", {"name": "Д"}, root)
-            out = demo_pdf.render_pdf(root, tok, b["name"], Path(tmp) / "pdf" / "x.pdf")
+            out = demo_pdf.render_pdf(root, tok, b["name"], Path(tmp) / "pdf" / "x.pdf",
+                                      os.environ.get("CHROMIUM_PATH"))  # свой браузер, если Playwright его не нашёл
             data = out.read_bytes()
             self.assertTrue(data.startswith(b"%PDF"))
             pages = data.count(b"/Type /Page") - data.count(b"/Type /Pages")
@@ -290,6 +292,7 @@ class Mail(unittest.TestCase):
     def test_fetch_new(self):
         raw = make_msg("boss@romashka.ru", "Re: Сайт", "Да").as_bytes()
         box = mock.MagicMock()
+        box.select.return_value = ("OK", [b"2"])
         box.uid.side_effect = lambda cmd, *a: ("OK", [b"1 2"]) if cmd == "search" else ("OK", [(b"2 (BODY[]", raw), b")"])
         with mock.patch.object(mailer.imaplib, "IMAP4_SSL", return_value=box):
             got = mailer.fetch_new({"host": "imap", "user": "u", "password": "p"}, seen={"1"})
@@ -298,6 +301,76 @@ class Mail(unittest.TestCase):
         fetch_args = [c.args for c in box.uid.call_args_list if c.args[0] == "fetch"]
         self.assertEqual(fetch_args, [("fetch", b"2", "(BODY.PEEK[])")])  # письмо не помечается прочитанным
 
+
+
+class Mailboxes(unittest.TestCase):
+    def test_mailboxes_and_quotas(self):
+        cfg = {"smtp": {"host": "smtp.yandex.ru", "user": "a@x.ru", "password": "p"},
+               "smtp2": {"host": "smtp.mail.ru", "user": "b@x.ru", "password": "q"},
+               "smtp3": {"host": "smtp.mail.ru", "user": "вторая-почта@ваш-домен.ru", "password": "пароль приложения"},
+               "imap": {"host": "imap.yandex.ru", "every_sec": 300}}
+        boxes = mailer.mailboxes(cfg)
+        self.assertEqual([b["key"] for b in boxes], ["smtp", "smtp2"])  # образец не считается
+        self.assertEqual(mailer.quotas(10, boxes), {"smtp": 5, "smtp2": 5})
+        self.assertEqual(mailer.quotas(11, boxes), {"smtp": 6, "smtp2": 5})
+        self.assertEqual(mailer.quotas(10, [dict(boxes[0], per_day=3), boxes[1]]), {"smtp": 3, "smtp2": 7})
+        self.assertEqual(mailer.imap_settings(cfg, boxes[0])["host"], "imap.yandex.ru")
+        im2 = mailer.imap_settings(cfg, boxes[1])
+        self.assertEqual((im2["host"], im2["user"], im2["password"]), ("imap.mail.ru", "b@x.ru", "q"))
+
+    def test_spam_folder(self):
+        box = mock.MagicMock()
+        box.list.return_value = ("OK", [b'(\\HasNoChildren) "|" "INBOX"', b'(\\HasNoChildren \\Junk) "|" "Spam"'])
+        self.assertEqual(mailer.spam_folder(box), '"Spam"')
+        box.list.return_value = ("OK", [b'(\\HasNoChildren) "/" INBOX', b'(\\HasNoChildren) "/" &BCEEPwQwBDw-'])
+        self.assertEqual(mailer.spam_folder(box), "&BCEEPwQwBDw-")
+        box.list.return_value = ("OK", [b'(\\HasNoChildren) "/" INBOX'])
+        self.assertIsNone(mailer.spam_folder(box))
+
+    def test_fetch_spam_without_folder(self):
+        box = mock.MagicMock()
+        box.list.return_value = ("OK", [b'(\\HasNoChildren) "/" INBOX'])
+        with mock.patch.object(mailer.imaplib, "IMAP4_SSL", return_value=box):
+            self.assertEqual(mailer.fetch_new({"host": "imap", "user": "u", "password": "p"}, set(), folder="spam"), [])
+        box.select.assert_not_called()
+
+
+class PdfErrors(unittest.TestCase):
+    def test_explain(self):
+        import demo_pdf
+        self.assertIn("не установлен браузер", demo_pdf.explain(ModuleNotFoundError("playwright")))
+        self.assertIn("не успел", demo_pdf.explain(TimeoutError("Timeout 30000ms exceeded")))
+        self.assertIn("не хватает памяти", demo_pdf.explain(RuntimeError("Target page, context or browser has been closed")))
+
+    def test_retry_and_one_at_a_time(self):
+        import threading
+        import time as _time
+        import demo_pdf
+        sys.modules.setdefault("playwright", mock.MagicMock())
+        sys.modules.setdefault("playwright.sync_api", mock.MagicMock())
+        calls, active, peak = [], [0], [0]
+
+        def render(root, token, name, out, path):
+            active[0] += 1
+            peak[0] = max(peak[0], active[0])
+            _time.sleep(0.05)
+            active[0] -= 1
+            calls.append(token)
+            if token == "always" or (token == "flaky" and calls.count("flaky") == 1):
+                raise RuntimeError("Target crashed")
+            return out
+        with mock.patch.object(demo_pdf, "_render", side_effect=render), mock.patch.object(demo_pdf.time, "sleep"):
+            ts = [threading.Thread(target=demo_pdf.render_pdf, args=(Path("."), t, "n", Path("x.pdf")))
+                  for t in ("a", "b", "flaky")]
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join()
+            self.assertEqual(peak[0], 1)  # никогда два браузера сразу
+            self.assertEqual(calls.count("flaky"), 2)  # упавшая попытка повторена
+            with self.assertRaises(RuntimeError):
+                demo_pdf.render_pdf(Path("."), "always", "n", Path("x.pdf"))
+            self.assertEqual(calls.count("always"), 2)
 
 if __name__ == "__main__":
     unittest.main()

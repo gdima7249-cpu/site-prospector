@@ -28,6 +28,53 @@ AUTO_FROM = re.compile(r"(no-?reply|do-?not-?reply|notification|notify|newslette
 QUOTE_START = re.compile(r"^(>|-{2,}|_{5,}|.*(написал|написала|wrote|пишет)\s*:?\s*$|.*<[^<>@\s]+@[^<>\s]+>\s*:\s*$|From:|От:)", re.I)
 
 
+# ───────────────────────────── ящики ─────────────────────────────
+# Ящиков может быть несколько: разделы smtp, smtp2, smtp3… в config.json. Письма делятся между ними поровну,
+# ответы бот читает во всех. Раздел с незаполненным образцом («пароль приложения», «ваш-домен») не считается.
+PLACEHOLDERS = ("пароль приложения", "ваш-домен", "вторая-почта")
+
+
+def mailboxes(cfg: dict) -> list[dict]:
+    """Заполненные ящики из config.json по порядку: [{…раздел smtpN…, "key": "smtp2"}, …]."""
+    keys = sorted((k for k in cfg if re.fullmatch(r"smtp\d*", k)), key=lambda k: int(k[4:] or 1))
+    out = []
+    for k in keys:
+        box = cfg[k]
+        if not isinstance(box, dict) or not all(box.get(x) for x in ("host", "user", "password")):
+            continue
+        if any(ph in str(box.get(x, "")).lower() for x in ("user", "password") for ph in PLACEHOLDERS):
+            continue
+        out.append(dict(box, key=k))
+    return out
+
+
+def address(box: dict) -> str:
+    return (box.get("from") or box.get("user") or "").lower()
+
+
+def imap_settings(cfg: dict, box: dict) -> dict:
+    """Чтение ответов для ящика: для первого — раздел imap (если есть), иначе адрес IMAP выводится из SMTP
+    (smtp.yandex.ru → imap.yandex.ru, smtp.mail.ru → imap.mail.ru). Логин и пароль — те же, что для отправки."""
+    base = dict(cfg.get("imap") or {}) if box.get("key", "smtp") == "smtp" else {}
+    out = {"host": box.get("imap_host") or base.get("host") or re.sub(r"^smtp\.", "imap.", box["host"]),
+           "port": box.get("imap_port") or base.get("port", 993)}
+    out["user"] = base.get("user") or box["user"]
+    out["password"] = base.get("password") or box["password"]
+    return out
+
+
+def quotas(total: int, boxes: list[dict]) -> dict[str, int]:
+    """Сколько писем в день с каждого ящика. У ящика может быть свой per_day; остальные делят limits.per_day поровну
+    (10 писем и два ящика — по 5)."""
+    fixed = {b["key"]: int(b["per_day"]) for b in boxes if str(b.get("per_day", "")).strip().isdigit()}
+    free = [b["key"] for b in boxes if b["key"] not in fixed]
+    left = max(total - sum(fixed.values()), 0) if fixed else total
+    out = dict(fixed)
+    for i, k in enumerate(free):
+        out[k] = left // len(free) + (1 if i < left % len(free) else 0)
+    return out
+
+
 def send(cfg: dict, to: str, subject: str, body: str, pdfs: list[tuple[str, bytes]] | None = None) -> str:
     """Отправляет письмо, возвращает Message-ID. cfg — раздел smtp из config.json; pdfs — вложения (имя, данные)."""
     sender = cfg.get("from") or cfg["user"]
@@ -98,13 +145,38 @@ def classify(msg: email.message.Message) -> dict:
     return {"kind": kind, "from": sender, "subject": subject, "text": reply[:1500]}
 
 
-def fetch_new(cfg: dict, seen: set[str], days: int = 3) -> list[tuple[str, dict]]:
-    """Новые письма за последние дни, которых нет в seen. cfg — раздел imap (+ логин из smtp)."""
+SPAM_NAMES = ("spam", "junk", "&bceepwqwbdw-")  # «Спам» в кодировке IMAP (modified UTF-7)
+
+
+def spam_folder(box: imaplib.IMAP4) -> str | None:
+    """Имя папки «Спам»: по пометке \\Junk (её ставят Яндекс, Mail.ru, Gmail) или по названию."""
+    _, rows = box.list()
+    for row in rows or []:
+        line = row.decode(errors="replace") if isinstance(row, bytes) else str(row)
+        m = re.match(r'\((?P<flags>[^)]*)\)\s+(?:"[^"]*"|NIL)\s+(?P<name>.+)$', line)
+        if not m:
+            continue
+        name = m.group("name").strip()
+        bare = name.strip('"').split("/")[-1].split("|")[-1].lower()
+        if "\\junk" in m.group("flags").lower() or "\\spam" in m.group("flags").lower() or bare in SPAM_NAMES:
+            return name
+    return None
+
+
+def fetch_new(cfg: dict, seen: set[str], days: int = 3, folder: str = "INBOX") -> list[tuple[str, dict]]:
+    """Новые письма за последние дни, которых нет в seen. cfg — настройки IMAP (imap_settings).
+    folder="spam" — папка «Спам» (если её нет, пустой список)."""
     box = imaplib.IMAP4_SSL(cfg["host"], int(cfg.get("port", 993)), ssl_context=ssl.create_default_context())
     out = []
     try:
         box.login(cfg["user"], cfg["password"])
-        box.select("INBOX", readonly=True)
+        if folder == "spam":
+            folder = spam_folder(box)
+            if not folder:
+                return []
+        status, _ = box.select(folder, readonly=True)
+        if status != "OK":
+            return []
         since = (date.today() - timedelta(days=days)).strftime("%d-%b-%Y")
         _, data = box.uid("search", None, f"SINCE {since}")
         for uid in (data[0] or b"").split():
