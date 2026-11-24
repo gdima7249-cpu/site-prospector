@@ -122,6 +122,88 @@ class BotTests(unittest.TestCase):
     def lead(self, name):
         return next(L for L in self.b.st["leads"].values() if L["b"]["name"] == name)
 
+    # ——— автоотправка ———
+    def auto_businesses(self):
+        nb = leads.new_business
+        return [nb(name="Ромашка", site=self.old, email="boss@romashka.ru", sources=["OSM"]),        # сайт открывается
+                nb(name="Гараж Петровича", phone="+7 (913) 222-33-44", reviews=70, sources=["2ГИС"]),  # нет email
+                nb(name="Личный", phone="+7 900 777 88 99", email="ivan.petrov@mail.ru", sources=["2ГИС"]),
+                nb(name="Только OSM", phone="+7 900 666 55 44", email="info@only-osm.ru", sources=["OSM"])]
+
+    def auto_search(self):
+        with mock.patch.object(leads, "find_businesses", return_value=(self.auto_businesses(), ["test"])), \
+                mock.patch.object(leads, "verify_no_site", side_effect=lambda bs, city: bs), \
+                mock.patch.object(bot.mailer, "send") as send:
+            self.b.search(1, "кузовной ремонт", "Омск", quiet=True)
+        return send
+
+    def test_auto_send_only_confirmed(self):
+        self.b.handle(1, 42, "/start")
+        self.b.handle(1, 42, "/auto on")
+        self.assertIn("Автоотправка включена", self.last)
+        send = self.auto_search()
+        self.assertEqual([c.args[1] for c in send.call_args_list], ["boss@romashka.ru"])  # только «Ромашка»
+        r = self.lead("Ромашка")
+        self.assertEqual((r["status"], r.get("auto")), ("sent", True))
+        self.assertIn("Прикладываю", send.call_args.args[3])
+        self.assertEqual(send.call_args.args[4][0][0], "Сайт-Ромашка.pdf")
+        cards = [t for t, m in self.out if m]
+        self.assertFalse(any("Ромашка" in t for t in cards))  # отправленной — карточки нет
+        for name in ("Гараж Петровича", "Личный", "Только OSM"):
+            self.assertTrue(any(name in t for t in cards), name)  # остальные — карточками, как раньше
+        self.assertEqual(self.files[-1][0], "Сайт-Ромашка.pdf")  # отчёт с PDF
+
+    def test_auto_report_and_checks(self):
+        self.b.handle(1, 42, "/start")
+        self.b.handle(1, 42, "/auto on")
+        sent_reports = []
+        orig = self.b.send_file
+        self.b.send_file = lambda chat, name, content, caption="": sent_reports.append(caption) or orig(chat, name, content, caption)
+        self.auto_search()
+        self.assertIn("🤖 Отправил сам: «Ромашка» → boss@romashka.ru", sent_reports[-1])
+        self.assertIn("почему уверен, что работает: сайт открывается", sent_reports[-1])
+        L = {"b": leads.new_business(name="X", email="ivan.petrov@mail.ru", sources=["2ГИС"]), "kind": "no_site",
+             "score": 80, "a": None}
+        self.assertEqual(self.b.auto_check(L), (False, "email похож на личный"))
+        L["b"]["email"] = "info@x.ru"
+        self.assertEqual(self.b.auto_check(L), (True, "есть в 2ГИС"))
+        L["kind"] = "dead_site"
+        self.assertFalse(self.b.auto_check(L)[0])
+        L.update(kind="no_site", score=30)
+        self.assertEqual(self.b.auto_check(L), (False, "приоритет ниже порога"))
+        L.update(score=80, b=leads.new_business(name="X", email="info@x.ru", sources=["OSM"]))
+        self.assertEqual(self.b.auto_check(L)[1], "нет подтверждения, что компания работает")
+        self.assertTrue(bot.is_branch({"domain": "omsk.fitauto.ru"}))
+        self.assertFalse(bot.is_branch({"domain": "kuzovomsk.ru"}))
+        self.assertFalse(bot.is_branch({"domain": "romashka.com.ru"}))
+        self.assertFalse(bot.is_branch({"domain": "127.0.0.1"}))
+
+    def test_auto_off_paused_limit_manual(self):
+        self.b.handle(1, 42, "/start")
+        self.assertEqual(self.auto_search().call_count, 0)  # по умолчанию выключено
+        self.b.handle(1, 42, "/auto on")
+        self.b.handle(1, 42, "/pause")
+        self.assertEqual(self.auto_search().call_count, 0)  # пауза
+        self.b.handle(1, 42, "/resume")
+        self.b.cfg["limits"]["per_day"] = 0
+        self.assertEqual(self.auto_search().call_count, 0)  # лимит
+        self.b.cfg["limits"]["per_day"] = 20
+        with mock.patch.object(bot.mailer, "send") as send:  # ручной поиск — всегда карточки
+            self.run_search()
+        send.assert_not_called()
+        self.b.handle(1, 42, "/status")
+        self.assertIn("Автоотправка: 🤖 включена", self.last)
+        self.b.handle(1, 42, "/auto off")
+        self.assertFalse(self.b.auto_on())
+
+    def test_auto_skips_when_pdf_failed(self):
+        self.b.handle(1, 42, "/start")
+        self.b.handle(1, 42, "/auto on")
+        with mock.patch.object(bot.demo_pdf, "render_pdf", side_effect=RuntimeError("crash")):
+            send = self.auto_search()
+        send.assert_not_called()
+        self.assertTrue(any("Ромашка" in t for t, m in self.out if m))  # пришла карточкой
+
     # ———
     def test_owner_only(self):
         self.b.handle(1, 42, "/start")

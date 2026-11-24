@@ -66,6 +66,7 @@ HELP = """Напишите нишу и город, например:
 /status — сколько писем отправлено сегодня, пауза, расписание
 /scan — запустить обход ниш и городов сейчас, не дожидаясь расписания (те же лимиты)
 /pause и /resume — остановить и возобновить отправку
+/auto on и /auto off — бот сам отправляет письма компаниям, которые точно работают
 /testmail — пробное письмо с каждого вашего ящика на него же (проверка почты)
 /draft 3 — черновик письма для кандидата №3 из последнего поиска
 /niches — список ниш · /addniche натяжные потолки: потолк, натяжн | high — своя ниша
@@ -500,6 +501,17 @@ class Bot:
             return self.say(chat, HELP)
         if cmd == "/scan":
             return spawn(self.scan_now, chat)
+        if cmd == "/auto":
+            if arg.strip().lower() in ("on", "вкл", "да"):
+                self.st["auto"] = True
+            elif arg.strip().lower() in ("off", "выкл", "нет"):
+                self.st["auto"] = False
+            else:
+                return self.say(chat, f"Автоотправка сейчас {'включена' if self.auto_on() else 'выключена'}.\n"
+                                      "/auto on — включить, /auto off — выключить.\n\n" + AUTO_HELP)
+            self.save()
+            return self.say(chat, ("🤖 Автоотправка включена.\n\n" + AUTO_HELP) if self.auto_on()
+                            else "Автоотправка выключена: все кандидаты приходят карточками.")
         if cmd == "/status":
             return self.say(chat, self.status_text())
         if cmd == "/testmail":
@@ -614,12 +626,14 @@ class Bot:
         return (f"Сегодня отправлено: {self.st['sent_today'].get(today, 0)} из {self.day_limit()}\n"
                 f"Недоставленных сегодня: {self.st['bounces_today'].get(today, 0)}\n"
                 f"Отправка: {'⏸ на паузе (/resume)' if self.st['paused'] else '▶️ работает'}\n"
+                f"Автоотправка: {'🤖 включена, только 🟢 компании (/auto off — выключить)' if self.auto_on() else 'выключена (/auto on — включить)'}\n"
                 f"{self.mail_status(today)}\n"
                 f"PDF с демо: {'работает' if demo_pdf.available() else 'нет браузера на сервере'}"
                 + (f" (память сервера: свободно {mem[0]} из {mem[1]} МБ)" if mem else "") + "\n"
                 f"Ссылки на демо: {self.demo_url if self.demo_link({'demo': 'x'}) else 'выключены (нужен домен; демо уходят в PDF)'}\n"
                 f"{self.schedule_status()}\n"
-                f"Кандидаты: отправлено {statuses.count('sent')}, ответили {statuses.count('replied')}, "
+                f"Кандидаты: отправлено {statuses.count('sent')} (из них сам — "
+                f"{sum(1 for L in self.st['leads'].values() if L.get('auto'))}), ответили {statuses.count('replied')}, "
                 f"отказались {statuses.count('refused')}")
 
     def mail_status(self, today: str) -> str:
@@ -709,6 +723,10 @@ class Bot:
                     self.st["last"] = list(ids)  # /draft N — номер из этого поиска, по всем городам
                 self.save()
                 for L in top:
+                    if quiet and self.auto_send(chat, L):
+                        sent += 1
+                        by_city[c] = by_city.get(c, 0) + 1
+                        continue
                     sent += 1
                     by_city[c] = by_city.get(c, 0) + 1
                     buttons = [("✅ Сделать демо", f"demo:{L['id']}"), ("❌ Пропустить", f"skip:{L['id']}")]
@@ -867,6 +885,52 @@ class Bot:
             self.save()
             return self.say(chat, f"Отменил. «{L['b']['name']}» не трогаю.")
 
+    # — автоотправка —
+    def auto_on(self) -> bool:
+        override = self.st.get("auto")
+        return bool(self.cfg.get("auto_send", {}).get("enabled", False) if override is None else override)
+
+    def auto_check(self, L: dict) -> tuple[bool, str]:
+        """Можно ли отправить письмо без вашей проверки. (да/нет, почему уверен — или почему нельзя)."""
+        ac = self.cfg.get("auto_send", {})
+        b = L["b"]
+        status, why = leads.activity(b, L.get("a"))
+        if status != "active":
+            return False, "нет подтверждения, что компания работает"
+        if L["kind"] not in ("site", "no_site"):
+            return False, "сайт не открывается — может быть ложная тревога"
+        if L["score"] < int(ac.get("min_score", 50)):
+            return False, "приоритет ниже порога"
+        email = b.get("email") or ((L.get("a") or {}).get("emails") or [""])[0]
+        if not email:
+            return False, "нет email"
+        if p.looks_personal(email) and not ac.get("allow_personal_email", False):
+            return False, "email похож на личный"
+        if is_branch(b):
+            return False, "похоже на филиал сети"
+        if p.suppressed(email, p.load_suppression(HERE / "do_not_contact.txt")):
+            return False, "адрес в списке «не писать»"
+        return True, why
+
+    def auto_send(self, chat: int, L: dict) -> bool:
+        """Сам собирает демо и отправляет письмо, если компания точно работает. False — тогда придёт карточка."""
+        if not self.auto_on() or self.st["paused"] or self.pick_box(self.today()) is None:
+            return False
+        ok, why = self.auto_check(L)
+        if not ok:
+            return False
+        try:
+            self.prepare_demo(chat, L, talk=False)
+        except Exception as e:  # noqa: BLE001
+            print(f"Автоотправка: демо не собралось: {e!r}")
+            return False
+        demo_cfg = self.cfg.get("demo", {})
+        if demo_cfg.get("pdf", True) and demo_pdf.available() and not self.pdf_path(L):
+            return False  # PDF должен был собраться, но не собрался — пусть решает человек
+        if not L.get("draft", {}).get("to"):
+            return False
+        return self.send_lead(chat, L, auto_why=why)
+
     def demo_link(self, L: dict) -> str | None:
         if not (L.get("demo") and self.demo_url and self.cfg.get("demo", {}).get("link", True)):
             return None
@@ -882,6 +946,17 @@ class Bot:
         return f"Сайт-{safe or 'демо'}.pdf"
 
     def make_demo(self, chat: int, L: dict):
+        note = self.prepare_demo(chat, L, talk=True)
+        pdf = self.pdf_path(L)
+        if pdf:
+            self.send_file(chat, self.pdf_name(L), pdf.read_bytes(), "PDF, который уйдёт клиенту вместе с письмом")
+        if self.cfg.get("one_click") and L["draft"]["to"]:
+            return self.send_lead(chat, L)
+        self.show_draft(chat, L, note)
+
+    def prepare_demo(self, chat: int, L: dict, talk: bool = True) -> str:
+        """Собирает демо и PDF, готовит письмо (L["draft"]). Возвращает заметку о проблемах (пусто — всё хорошо).
+        talk=False — без сообщений в Telegram (автоотправка)."""
         niche = leads.load_niches().get(L.get("niche", ""), {})
         demo_cfg = self.cfg.get("demo", {})
         want_pdf = demo_cfg.get("pdf", True) and demo_pdf.available()
@@ -892,7 +967,8 @@ class Bot:
         if not self.demo_url and not want_pdf:
             note += "Демо не показать: нет ни адреса демо-страниц (demo → public_url), ни PDF. Письмо — без демо.\n\n"
         elif not L.get("demo"):
-            self.say(chat, f"Собираю демо для «{L['b']['name']}»" + (" и PDF…" if want_pdf else "…"))
+            if talk:
+                self.say(chat, f"Собираю демо для «{L['b']['name']}»" + (" и PDF…" if want_pdf else "…"))
             try:
                 L["demo"] = demo_builder.build_demo(L["b"], L["niche"], niche, L["city"], sender_info(), self.demo_root,
                                                   demo_cfg.get("template", "studio"))
@@ -900,7 +976,7 @@ class Bot:
                 print(f"Ошибка сборки демо: {e!r}")
                 note = f"Демо собрать не удалось ({type(e).__name__}), письмо — без него.\n\n"
         if L.get("demo") and want_pdf and not self.pdf_path(L):
-            if demo_pdf.busy():
+            if demo_pdf.busy() and talk:
                 self.say(chat, f"PDF для «{L['b']['name']}» — в очереди: браузер собирает PDF по одному, "
                                "чтобы серверу хватило памяти. Пришлю, как дойдёт очередь.")
             try:
@@ -910,15 +986,10 @@ class Bot:
                 print(f"Ошибка PDF: {e!r}")
                 note += (f"PDF собрать не удалось: {demo_pdf.explain(e)}\n"
                          "Письмо можно отправить и без PDF, или нажмите «✅ Сделать демо» ещё раз позже.\n\n")
-        pdf = self.pdf_path(L)
-        if pdf:
-            self.send_file(chat, self.pdf_name(L), pdf.read_bytes(), "PDF, который уйдёт клиенту вместе с письмом")
-        L["draft"] = make_draft(L, self.demo_link(L), pdf=bool(pdf))
+        L["draft"] = make_draft(L, self.demo_link(L), pdf=bool(self.pdf_path(L)))
         L["status"] = "draft"
         self.save()
-        if self.cfg.get("one_click") and L["draft"]["to"]:
-            return self.send_lead(chat, L)
-        self.show_draft(chat, L, note)
+        return note
 
     def show_draft(self, chat: int, L: dict, note: str = ""):
         d = L["draft"]
@@ -969,7 +1040,9 @@ class Bot:
         self.show_draft(chat, L, f"Почту {email} записал.\n\n")
 
     # — отправка —
-    def send_lead(self, chat: int, L: dict):
+    def send_lead(self, chat: int, L: dict, auto_why: str | None = None) -> bool:
+        """Отправляет письмо L["draft"]. auto_why — автоотправка: при помехе молчит (кандидат придёт карточкой),
+        при успехе пишет, почему бот уверен, что компания работает. Возвращает True, если письмо ушло."""
         d = L.get("draft") or {}
         lim = self.cfg.get("limits", {})
         today = self.today()
@@ -986,26 +1059,33 @@ class Bot:
         elif p.suppressed(d["to"], p.load_suppression(HERE / "do_not_contact.txt")) or L.get("status") == "sent":
             problem = "этот адрес в списке «не писать» или письмо уже отправлено"
         if problem:
-            return self.say(chat, f"Не отправил «{L['b']['name']}»: {problem}.",
+            if auto_why is not None:
+                return False
+            self.say(chat, f"Не отправил «{L['b']['name']}»: {problem}.",
                             kb([("📨 Отправить", f"send:{L['id']}"), ("❌ Отмена", f"cancel:{L['id']}")])
                             if "лимит" in problem or "пауз" in problem else None)
+            return False
         with self.send_lock:  # пауза между письмами, даже если нажать несколько кнопок подряд
             wait = self.st["last_send_ts"] + lim.get("min_delay_sec", 90) - time.time()
             if wait > 0:
-                self.say(chat, f"Отправлю «{L['b']['name']}» через {int(wait)} с (пауза между письмами).")
+                if auto_why is None:
+                    self.say(chat, f"Отправлю «{L['b']['name']}» через {int(wait)} с (пауза между письмами).")
                 time.sleep(wait)
             box = self.pick_box(today)
             if box is None:  # пока ждали паузу, лимит выбрали другие письма
-                return self.say(chat, f"Не отправил «{L['b']['name']}»: дневной лимит {self.day_limit()} писем исчерпан.",
-                                kb([("📨 Отправить", f"send:{L['id']}"), ("❌ Отмена", f"cancel:{L['id']}")]))
+                if auto_why is None:
+                    self.say(chat, f"Не отправил «{L['b']['name']}»: дневной лимит {self.day_limit()} писем исчерпан.",
+                             kb([("📨 Отправить", f"send:{L['id']}"), ("❌ Отмена", f"cancel:{L['id']}")]))
+                return False
             try:
                 pdf = self.pdf_path(L)
                 mailer.send(box, d["to"], d["subject"], d["body"],
                             [(self.pdf_name(L), pdf.read_bytes())] if pdf else None)
             except Exception as e:  # noqa: BLE001
                 print(f"Ошибка отправки с {mailer.address(box)}: {e!r}")
-                return self.say(chat, f"Письмо «{L['b']['name']}» не ушло с {mailer.address(box)}: {type(e).__name__}: {e}",
-                                kb([("📨 Попробовать ещё раз", f"send:{L['id']}")]))
+                self.say(chat, f"Письмо «{L['b']['name']}» не ушло с {mailer.address(box)}: {type(e).__name__}: {e}",
+                         kb([("📨 Попробовать ещё раз", f"send:{L['id']}")]))
+                return False
             with self.lock:
                 self.st["last_send_ts"] = time.time()
                 by_box = self.sent_by_box(today)  # до прибавки к общему счётчику: он нужен в день обновления
@@ -1016,8 +1096,22 @@ class Bot:
                          sent_at=datetime.now().isoformat(timespec="minutes"))
             self.save()
         via = f" с {mailer.address(box)}" if len(self.boxes()) > 1 else ""
-        self.say(chat, f"📨 Отправлено: «{L['b']['name']}» → {d['to']}{via}. "
-                       f"Сегодня {self.st['sent_today'][today]} из {self.day_limit()}.")
+        count = f"Сегодня {self.st['sent_today'][today]} из {self.day_limit()}."
+        if auto_why is None:
+            self.say(chat, f"📨 Отправлено: «{L['b']['name']}» → {d['to']}{via}. {count}")
+        else:
+            L["auto"] = True
+            self.save()
+            text = (f"🤖 Отправил сам: «{L['b']['name']}» → {d['to']}{via}\n"
+                    f"   почему уверен, что работает: {auto_why}\n"
+                    f"   приоритет {L['score']}/100: {', '.join(L['reasons']) or 'мелкие недочёты'}\n"
+                    f"{count} Остановить автоотправку: /auto off")
+            pdf = self.pdf_path(L)
+            if pdf:
+                self.send_file(chat, self.pdf_name(L), pdf.read_bytes(), text[:1000])
+            else:
+                self.say(chat, text)
+        return True
 
     # — входящие —
     def inbox_loop(self):
@@ -1230,6 +1324,25 @@ class Bot:
         if errors:
             summary += "\nНе получилось: " + "; ".join(errors[:5]) + (f" и ещё {len(errors) - 5}" if len(errors) > 5 else "")
         self.say(chat, summary)
+
+
+def is_branch(b: dict) -> bool:
+    """Похоже на филиал сети: сайт — поддомен вида omsk.fitauto.ru (у сети свой отдел, который делает сайты)."""
+    host = b.get("domain", "")
+    labels = host.split(".")
+    second = {"com", "org", "net", "msk", "spb"}
+    if all(x.isdigit() for x in labels):  # IP-адрес — не поддомен
+        return False
+    return len(labels) >= 3 and labels[0] != "www" and labels[-2] not in second
+
+
+AUTO_HELP = ("Бот отправляет письмо сам (в поиске по расписанию и в /scan), только если всё сразу:\n"
+             "• компания 🟢 работает: есть в 2ГИС/Яндексе, есть отзывы или её сайт открывается;\n"
+             "• сайта нет или он слабый (не «не открывается»);\n"
+             "• есть email, и он не похож на личный;\n"
+             "• не филиал сети (сайт вида город.сеть.ru);\n"
+             "• приоритет не ниже порога, PDF собрался, дневной лимит не исчерпан.\n"
+             "Остальные приходят карточками, как раньше. Об отправленных бот пишет отчёт с PDF.")
 
 
 def get_token() -> str:

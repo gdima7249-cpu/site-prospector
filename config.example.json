@@ -61,5 +61,11 @@
   "max_cards": 12,
   "max_searches": 40
  },
- "one_click": false
+ "one_click": false,
+ "auto_send": {
+  "_comment": "Бот сам отправляет письма компаниям, которые точно работают (🟢), в поиске по расписанию и в /scan. Включается и выключается командой /auto on / /auto off. min_score — минимальный приоритет; allow_personal_email — писать ли на адреса, похожие на личные (не советую).",
+  "enabled": false,
+  "min_score": 50,
+  "allow_personal_email": false
+ }
 }
